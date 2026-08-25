@@ -1,4 +1,4 @@
-﻿name: CI Backend
+name: CI Backend
 
 on:
   push:
@@ -32,8 +32,7 @@ jobs:
       PGUSER: ideator
       PGPASSWORD: ideator
       PGDATABASE: ideator_test_db
-      DATABASE_URL: postgresql://${{ env.PGUSER }}:${{ env.PGPASSWORD }}@${{ env.PGHOST }}:${{ env.PGPORT }}/${{ env.PGDATABASE }}?schema=public
-
+      DATABASE_URL: postgresql://ideator:ideator@localhost:5432/ideator_test_db?schema=public
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
