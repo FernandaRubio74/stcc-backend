@@ -1,0 +1,102 @@
+// ============================================================
+// Ideator - Modelo de datos inicial
+// US: Como equipo de backend, quiero un modelo de datos inicial
+// para usuarios, proyectos y membresias...
+// ============================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Nota: este schema vive en src/database/schema.prisma (no en ./prisma/,
+// que es la ubicacion por defecto de Prisma) para respetar la estructura
+// de carpetas ya definida en el repo. Por eso todos los comandos de Prisma
+// en package.json usan la flag --schema=src/database/schema.prisma.
+
+enum ProjectRole {
+  owner
+  editor
+  viewer
+}
+
+// ------------------------------------------------------------
+// User
+// ------------------------------------------------------------
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  email        String  @unique @db.VarChar(255)
+  passwordHash String? @map("password_hash") @db.VarChar(255)
+  fullName     String  @map("full_name") @db.VarChar(150)
+
+  // Campos mínimos para soportar SSO desde el diseño (login local o proveedor externo)
+  authProvider String  @default("local") @map("auth_provider") @db.VarChar(30)
+  providerId   String? @map("provider_id") @db.VarChar(255)
+
+  // --- Auditoría ---
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Auto-referencia: quién creó este usuario (null = se registró solo)
+  createdById  String? @map("created_by") @db.Uuid
+  createdBy    User?   @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers User[]  @relation("UserCreatedBy")
+
+  // --- Relaciones inversas ---
+  ownedProjects    Project[]       @relation("ProjectCreatedBy")
+  memberships      ProjectMember[] @relation("MemberUser")
+  addedMemberships ProjectMember[] @relation("MemberCreatedBy")
+
+  // Evita que dos usuarios locales/SSO compartan la misma identidad externa
+  @@unique([authProvider, providerId], map: "uq_user_provider")
+  @@map("users")
+}
+
+// ------------------------------------------------------------
+// Project
+// ------------------------------------------------------------
+model Project {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @db.VarChar(150)
+  description String?
+  isPrivate   Boolean @default(true) @map("is_private")
+
+  // --- Auditoría ---
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  createdById String @map("created_by") @db.Uuid
+  createdBy   User   @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+
+  members ProjectMember[]
+
+  @@map("projects")
+}
+
+// ------------------------------------------------------------
+// ProjectMember (resuelve la relación N:M entre User y Project)
+// ------------------------------------------------------------
+model ProjectMember {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId    String      @map("user_id") @db.Uuid
+  user      User        @relation("MemberUser", fields: [userId], references: [id])
+  projectId String      @map("project_id") @db.Uuid
+  project   Project     @relation(fields: [projectId], references: [id])
+  role      ProjectRole @default(viewer)
+
+  // --- Auditoría ---
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  createdById String? @map("created_by") @db.Uuid
+  createdBy   User?   @relation("MemberCreatedBy", fields: [createdById], references: [id])
+
+  // Un usuario no puede tener más de una membresía activa por proyecto
+  @@unique([userId, projectId], map: "uq_project_member")
+  @@map("project_members")
+}
