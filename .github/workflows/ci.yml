@@ -12,6 +12,27 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideator
+          POSTGRES_PASSWORD: ideator
+          POSTGRES_DB: ideator_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ideator -d ideator_test_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: ideator
+      PGPASSWORD: ideator
+      PGDATABASE: ideator_test_db
+      DATABASE_URL: postgresql://${{ env.PGUSER }}:${{ env.PGPASSWORD }}@${{ env.PGHOST }}:${{ env.PGPORT }}/${{ env.PGDATABASE }}?schema=public
 
     steps:
       - name: Checkout code
@@ -25,6 +46,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run generate
+
+      - name: Run migrations
+        run: npm run migrate
 
       - name: Run linter
         run: npm run lint
