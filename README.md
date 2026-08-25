@@ -67,6 +67,11 @@ Nunca commitear el archivo `.env`. Usar siempre `.env.example` como plantilla si
 | `npm run test:coverage` | Ejecuta pruebas con reporte de cobertura |
 | `npm run lint` | Ejecuta el linter |
 
+## Base de datos
+
+Modelo de datos inicial (`User`, `Project`, `ProjectMember`), diagrama ER,
+políticas de cascada y tests de esquema: ver [`docs/database/README.md`](./docs/database/README.md).
+
 ## Estructura del proyecto
 
 Ver detalle completo en la sección de estructura de carpetas más abajo.
