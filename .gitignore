@@ -1,6 +1,21 @@
-﻿node_modules/
+# Dependencias
+node_modules/
+
+# Variables de entorno (contiene datos de conexion, no se sube)
+.env
+
+# Cliente generado por Prisma
+generated/
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+
+# Cobertura de tests
+coverage/
 dist/
 build/
-coverage/
-.env
 *.log
