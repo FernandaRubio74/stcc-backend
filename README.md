@@ -1,5 +1,7 @@
 # Ideator — Backend
 
+[![CI Backend](https://github.com/FernandaRubio74/stcc-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/FernandaRubio74/stcc-backend/actions/workflows/ci.yml)
+
 API y lógica de negocio de **Ideator**, la aplicación que acompaña a un usuario o equipo en el proceso de transformar una idea inicial en una especificación técnica completa (modelo de datos, API, frontend y arquitectura).
 
 ## Stack
