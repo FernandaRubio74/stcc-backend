@@ -16,3 +16,6 @@ npm-debug.log*
 
 # Cobertura de tests
 coverage/
+dist/
+build/
+*.log
