@@ -4,9 +4,9 @@
   "description": "API y logica de negocio de Ideator",
   "private": true,
   "scripts": {
-    "dev": "echo \"[pendiente] se implementara al definir el framework (Express/NestJS) en EPIC-09\"",
-    "build": "echo \"[pendiente] se implementara al definir el framework en EPIC-09\"",
-    "start": "echo \"[pendiente] se implementara al definir el framework en EPIC-09\"",
+    "dev": "node src/server.js",
+    "build": "echo \"No build step needed (plain Node.js)\"",
+    "start": "node src/server.js",
     "lint": "eslint \"src/**/*.{js,ts}\"",
     "lint:fix": "eslint \"src/**/*.{js,ts}\" --fix",
     "format": "prettier --write .",
@@ -22,7 +22,12 @@
     "test:coverage": "jest --coverage --runInBand"
   },
   "dependencies": {
-    "@prisma/client": "^5.20.0"
+    "@prisma/client": "^5.20.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
