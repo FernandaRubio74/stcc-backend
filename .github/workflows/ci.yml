@@ -1,4 +1,4 @@
-name: CI Backend
+﻿name: CI Backend
 
 on:
   push:
@@ -33,6 +33,8 @@ jobs:
       PGPASSWORD: ideator
       PGDATABASE: ideator_test_db
       DATABASE_URL: postgresql://ideator:ideator@localhost:5432/ideator_test_db?schema=public
+      JWT_SECRET: test_secret_solo_para_ci_no_usar_en_produccion
+      JWT_EXPIRES_IN: 1d
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -57,3 +59,4 @@ jobs:
 
       - name: Run tests
         run: npm test
+
