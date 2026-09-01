@@ -1,5 +1,6 @@
 ﻿const express = require('express');
 const authRoutes = require('./modules/auth/auth.routes');
+const projectsRoutes = require('./modules/projects/projects.routes');
 
 const app = express();
 
@@ -10,6 +11,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/auth', authRoutes);
+app.use('/projects', projectsRoutes);
 
 // Manejador de errores centralizado
 app.use((err, req, res, _next) => {
