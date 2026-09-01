@@ -124,7 +124,8 @@ describe('requireProjectMembership - acceso permitido', () => {
 });
 
 describe('requireProjectMembership - acceso denegado', () => {
-  test('responde 404 si el usuario no es miembro del proyecto', async () => {
+  test('responde 403 si el proyecto existe pero el usuario no es miembro', async () => {
+    // Lo pide la DoD de US-007: "Con identidad pero sin permisos -> 403".
     const { project } = await seedProject();
     const ajeno = await prisma.user.create({
       data: { email: 'ajeno@ideator.com', fullName: 'Ajeno' },
@@ -137,8 +138,8 @@ describe('requireProjectMembership - acceso denegado', () => {
     await guard(req, res, next);
 
     expect(next.called).toBe(false);
-    expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({ error: 'Proyecto no encontrado' });
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({ error: 'No tenes acceso a este proyecto' });
   });
 
   test('el creador del proyecto SIN fila en ProjectMember tampoco pasa', async () => {
@@ -151,13 +152,35 @@ describe('requireProjectMembership - acceso denegado', () => {
 
     await guard(req, res, buildNext());
 
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(403);
   });
 
-  test('un proyecto inexistente responde igual que uno ajeno (no filtra existencia)', async () => {
-    const { project } = await seedProject();
+  test('responde 404 si el proyecto no existe', async () => {
     const ajeno = await prisma.user.create({
       data: { email: 'ajeno2@ideator.com', fullName: 'Ajeno 2' },
+    });
+
+    const res = buildRes();
+    const next = buildNext();
+
+    await guard(
+      { user: { id: ajeno.id }, params: { projectId: UUID_INEXISTENTE } },
+      res,
+      next
+    );
+
+    expect(next.called).toBe(false);
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: 'Proyecto no encontrado' });
+  });
+
+  test('distingue proyecto ajeno (403) de proyecto inexistente (404)', async () => {
+    // Contraparte del test anterior: se deja explicito que la distincion es
+    // intencional y no un descuido. Su costo (permite enumerar que proyectos
+    // existen) esta documentado en docs/autorizacion/README.md seccion 4.
+    const { project } = await seedProject();
+    const ajeno = await prisma.user.create({
+      data: { email: 'ajeno3@ideator.com', fullName: 'Ajeno 3' },
     });
 
     const resAjeno = buildRes();
@@ -174,8 +197,8 @@ describe('requireProjectMembership - acceso denegado', () => {
       buildNext()
     );
 
-    expect(resInexistente.statusCode).toBe(resAjeno.statusCode);
-    expect(resInexistente.body).toEqual(resAjeno.body);
+    expect(resAjeno.statusCode).toBe(403);
+    expect(resInexistente.statusCode).toBe(404);
   });
 
   test('responde 404 si el projectId no es un UUID valido', async () => {
