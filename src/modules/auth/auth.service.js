@@ -1,7 +1,6 @@
 ﻿const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const { PrismaClient } = require('@prisma/client');
-const env = require('../../config/env');
+const { generateSessionToken } = require('./token.service');
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10;
@@ -36,11 +35,8 @@ async function login({ email, password }) {
     throw new InvalidCredentialsError('Credenciales invalidas');
   }
 
-  const token = jwt.sign(
-    { sub: user.id, email: user.email },
-    env.jwt.secret,
-    { expiresIn: env.jwt.expiresIn }
-  );
+  // T-006.3: emision de sesion unificada con SSO (ver token.service.js).
+  const token = generateSessionToken(user);
 
   return { token, user: { id: user.id, email: user.email, fullName: user.fullName } };
 }
