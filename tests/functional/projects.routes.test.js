@@ -114,7 +114,7 @@ describe('GET /projects/:projectId - guard de pertenencia', () => {
     expect(res.body.role).toBe('viewer');
   });
 
-  test('un usuario ajeno recibe 404, no 403', async () => {
+  test('un usuario ajeno recibe 403 (DoD de US-007)', async () => {
     const owner = await crearUsuario('owner2@ideator.com');
     const ajeno = await crearUsuario('ajeno@ideator.com');
 
@@ -127,29 +127,19 @@ describe('GET /projects/:projectId - guard de pertenencia', () => {
       .get(`/projects/${creado.body.id}`)
       .set('Authorization', `Bearer ${tokenDe(ajeno.id)}`);
 
-    expect(res.status).toBe(404);
-    expect(res.body).toEqual({ error: 'Proyecto no encontrado' });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'No tenes acceso a este proyecto' });
   });
 
-  test('un proyecto ajeno y uno inexistente responden identico (no filtra existencia)', async () => {
-    const owner = await crearUsuario('owner3@ideator.com');
+  test('un proyecto inexistente responde 404, no 403', async () => {
     const ajeno = await crearUsuario('ajeno2@ideator.com');
-    const tokenAjeno = `Bearer ${tokenDe(ajeno.id)}`;
 
-    const creado = await request(app)
-      .post('/projects')
-      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
-      .send({ name: 'Privado' });
-
-    const resAjeno = await request(app)
-      .get(`/projects/${creado.body.id}`)
-      .set('Authorization', tokenAjeno);
-    const resInexistente = await request(app)
+    const res = await request(app)
       .get(`/projects/${UUID_INEXISTENTE}`)
-      .set('Authorization', tokenAjeno);
+      .set('Authorization', `Bearer ${tokenDe(ajeno.id)}`);
 
-    expect(resInexistente.status).toBe(resAjeno.status);
-    expect(resInexistente.body).toEqual(resAjeno.body);
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Proyecto no encontrado' });
   });
 
   test('responde 401 sin token, antes de tocar el guard', async () => {

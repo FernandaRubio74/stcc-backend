@@ -13,11 +13,16 @@
  *   alta de proyecto DEBE insertar la membresia `owner` (ticket del modulo
  *   `projects`).
  *
- * - **404 uniforme.** Proyecto inexistente y proyecto ajeno responden lo mismo.
- *   Si el ajeno respondiera 403, cualquier usuario logueado podria enumerar
- *   UUIDs y descubrir que proyectos existen sin tener acceso a ninguno. Los
- *   proyectos son privados por defecto, asi que para un no-miembro el proyecto
- *   directamente no existe.
+ * - **404 si el proyecto no existe, 403 si existe pero no sos miembro.** Lo pide
+ *   explicitamente la DoD de US-007: "Sin identidad valida -> 401. Con
+ *   identidad pero sin permisos -> 403".
+ *
+ *   Se implemento primero con 404 uniforme para los dos casos, porque
+ *   distinguirlos permite que cualquier usuario logueado enumere UUIDs y
+ *   descubra que proyectos existen sin tener acceso a ninguno. Se cambio para
+ *   cumplir la DoD. Si mas adelante pesa mas la privacidad que la claridad de
+ *   la respuesta, el unico cambio necesario es devolver 404 tambien en la rama
+ *   del 403 de abajo — el resto de la logica no se toca.
  *
  * - **No decide sobre roles.** Solo responde "es miembro si/no" y deja el rol
  *   en `req.projectMembership` para que la matriz de permisos (T-008) lo use.
@@ -54,20 +59,32 @@ function createRequireProjectMembership({
       return res.status(404).json({ error: 'Proyecto no encontrado' });
     }
 
-    let membership;
+    // Se trae el proyecto con la membresia del usuario anidada: distinguir 404
+    // de 403 exige saber si el proyecto existe, y hacerlo asi mantiene un solo
+    // viaje a la base en vez de dos queries.
+    let project;
     try {
-      membership = await prisma.projectMember.findUnique({
-        where: {
-          userId_projectId: { userId: req.user.id, projectId },
+      project = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: {
+          id: true,
+          members: {
+            where: { userId: req.user.id },
+            select: { id: true, role: true },
+          },
         },
-        select: { id: true, role: true },
       });
     } catch (err) {
       return next(err);
     }
 
-    if (!membership) {
+    if (!project) {
       return res.status(404).json({ error: 'Proyecto no encontrado' });
+    }
+
+    const membership = project.members[0];
+    if (!membership) {
+      return res.status(403).json({ error: 'No tenes acceso a este proyecto' });
     }
 
     req.projectMembership = {
