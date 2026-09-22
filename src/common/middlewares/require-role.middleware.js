@@ -8,9 +8,9 @@
 function requireRole(requiredRole) {
   return function requireRoleMiddleware(req, res, next) {
     if (!req.projectMembership) {
-      // No deberia pasar si las rutas estan bien ordenadas, pero se corta
-      // igual en vez de asumir.
-      return res.status(401).json({ error: 'No autenticado' });
+      return next(
+        new Error('requireRole debe ejecutarse despues de requireProjectMembership')
+      );
     }
 
     if (req.projectMembership.role !== requiredRole) {
