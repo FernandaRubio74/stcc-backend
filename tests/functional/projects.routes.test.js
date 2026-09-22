@@ -167,3 +167,147 @@ describe('GET /projects/:projectId - guard de pertenencia', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('GET /projects - listado', () => {
+  test('devuelve solo los proyectos donde el usuario es miembro', async () => {
+    const user = await crearUsuario('lista@ideator.com');
+    const otro = await crearUsuario('otro@ideator.com');
+    const token = `Bearer ${tokenDe(user.id)}`;
+
+    await request(app).post('/projects').set('Authorization', token).send({ name: 'Mio 1' });
+    await request(app).post('/projects').set('Authorization', token).send({ name: 'Mio 2' });
+    await request(app)
+      .post('/projects')
+      .set('Authorization', `Bearer ${tokenDe(otro.id)}`)
+      .send({ name: 'Ajeno' });
+
+    const res = await request(app).get('/projects').set('Authorization', token);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(res.body.every((p) => p.name !== 'Ajeno')).toBe(true);
+  });
+
+  test('responde 401 sin token', async () => {
+    const res = await request(app).get('/projects');
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('PATCH /projects/:projectId', () => {
+  test('el owner puede actualizar el proyecto', async () => {
+    const owner = await crearUsuario('patch-owner@ideator.com');
+    const token = `Bearer ${tokenDe(owner.id)}`;
+
+    const creado = await request(app)
+      .post('/projects')
+      .set('Authorization', token)
+      .send({ name: 'Original' });
+
+    const res = await request(app)
+      .patch(`/projects/${creado.body.id}`)
+      .set('Authorization', token)
+      .send({ name: 'Actualizado' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('Actualizado');
+  });
+
+  test('un viewer recibe 403 al intentar actualizar', async () => {
+    const owner = await crearUsuario('patch-owner2@ideator.com');
+    const viewer = await crearUsuario('patch-viewer@ideator.com');
+
+    const creado = await request(app)
+      .post('/projects')
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ name: 'Compartido' });
+
+    await prisma.projectMember.create({
+      data: { userId: viewer.id, projectId: creado.body.id, role: 'viewer' },
+    });
+
+    const res = await request(app)
+      .patch(`/projects/${creado.body.id}`)
+      .set('Authorization', `Bearer ${tokenDe(viewer.id)}`)
+      .send({ name: 'Intento' });
+
+    expect(res.status).toBe(403);
+  });
+
+  test('un usuario ajeno recibe 404 (no filtra existencia)', async () => {
+    const owner = await crearUsuario('patch-owner3@ideator.com');
+    const ajeno = await crearUsuario('patch-ajeno@ideator.com');
+
+    const creado = await request(app)
+      .post('/projects')
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ name: 'Privado' });
+
+    const res = await request(app)
+      .patch(`/projects/${creado.body.id}`)
+      .set('Authorization', `Bearer ${tokenDe(ajeno.id)}`)
+      .send({ name: 'Intento' });
+
+    expect(res.status).toBe(404);
+  });
+
+  test('responde 400 si no se envia ningun campo', async () => {
+    const owner = await crearUsuario('patch-owner4@ideator.com');
+    const token = `Bearer ${tokenDe(owner.id)}`;
+
+    const creado = await request(app)
+      .post('/projects')
+      .set('Authorization', token)
+      .send({ name: 'Vacio' });
+
+    const res = await request(app)
+      .patch(`/projects/${creado.body.id}`)
+      .set('Authorization', token)
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('DELETE /projects/:projectId', () => {
+  test('el owner puede eliminar el proyecto', async () => {
+    const owner = await crearUsuario('delete-owner@ideator.com');
+    const token = `Bearer ${tokenDe(owner.id)}`;
+
+    const creado = await request(app)
+      .post('/projects')
+      .set('Authorization', token)
+      .send({ name: 'A borrar' });
+
+    const res = await request(app)
+      .delete(`/projects/${creado.body.id}`)
+      .set('Authorization', token);
+
+    expect(res.status).toBe(204);
+
+    const leido = await request(app)
+      .get(`/projects/${creado.body.id}`)
+      .set('Authorization', token);
+    expect(leido.status).toBe(404);
+  });
+
+  test('un editor recibe 403 al intentar eliminar', async () => {
+    const owner = await crearUsuario('delete-owner2@ideator.com');
+    const editor = await crearUsuario('delete-editor@ideator.com');
+
+    const creado = await request(app)
+      .post('/projects')
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ name: 'Compartido' });
+
+    await prisma.projectMember.create({
+      data: { userId: editor.id, projectId: creado.body.id, role: 'editor' },
+    });
+
+    const res = await request(app)
+      .delete(`/projects/${creado.body.id}`)
+      .set('Authorization', `Bearer ${tokenDe(editor.id)}`);
+
+    expect(res.status).toBe(403);
+  });
+});

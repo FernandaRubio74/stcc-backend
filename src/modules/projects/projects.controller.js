@@ -1,4 +1,4 @@
-const projectsService = require('./projects.service');
+﻿const projectsService = require('./projects.service');
 
 async function createProjectController(req, res) {
   const project = await projectsService.createProject({
@@ -11,9 +11,6 @@ async function createProjectController(req, res) {
 }
 
 async function getProjectController(req, res) {
-  // `requireProjectMembership` ya confirmo el acceso y dejo el rol del usuario
-  // en req.projectMembership; se devuelve para que el frontend sepa que puede
-  // ofrecer sin tener que preguntarlo aparte.
   const project = await projectsService.getProjectById(req.params.projectId);
 
   return res.status(200).json({
@@ -22,4 +19,25 @@ async function getProjectController(req, res) {
   });
 }
 
-module.exports = { createProjectController, getProjectController };
+async function listProjectsController(req, res) {
+  const projects = await projectsService.listProjectsForUser(req.user.id);
+  return res.status(200).json(projects);
+}
+
+async function updateProjectController(req, res) {
+  const project = await projectsService.updateProject(req.params.projectId, req.body);
+  return res.status(200).json(project);
+}
+
+async function deleteProjectController(req, res) {
+  await projectsService.deleteProject(req.params.projectId);
+  return res.status(204).send();
+}
+
+module.exports = {
+  createProjectController,
+  getProjectController,
+  listProjectsController,
+  updateProjectController,
+  deleteProjectController,
+};

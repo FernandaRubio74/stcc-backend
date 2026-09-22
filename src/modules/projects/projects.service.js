@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Servicio de proyectos.
  *
  * Es la unica puerta de entrada para crear proyectos. Ningun controller debe
@@ -9,18 +9,15 @@ const prisma = require('../../database/client');
 
 class ProjectNotFoundError extends Error {}
 
-/**
- * Crea un proyecto junto con la membresia `owner` de su creador.
- *
- * El `members.create` anidado no es una comodidad de sintaxis: Prisma lo
- * ejecuta como una sola transaccion, asi que no existe un estado intermedio en
- * el que el proyecto ya este creado pero su owner todavia no.
- *
- * Por que importa: el guard de pertenencia (T-007.1) resuelve el acceso
- * unicamente via `ProjectMember` y no mira `Project.created_by` — que es un
- * campo de auditoria, no de autorizacion. Si esta fila no se creara, el
- * creador quedaria afuera de su propio proyecto con un 404.
- */
+const PROJECT_SELECT = {
+  id: true,
+  name: true,
+  description: true,
+  isPrivate: true,
+  createdAt: true,
+  createdById: true,
+};
+
 async function createProject({ name, description, userId }) {
   return prisma.project.create({
     data: {
@@ -31,33 +28,14 @@ async function createProject({ name, description, userId }) {
         create: { userId, role: 'owner', createdById: userId },
       },
     },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      isPrivate: true,
-      createdAt: true,
-      createdById: true,
-    },
+    select: PROJECT_SELECT,
   });
 }
 
-/**
- * Devuelve un proyecto por id. No chequea permisos: el acceso ya lo resolvio
- * `requireProjectMembership` antes de llegar aca.
- */
 async function getProjectById(projectId) {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      isPrivate: true,
-      createdAt: true,
-      updatedAt: true,
-      createdById: true,
-    },
+    select: { ...PROJECT_SELECT, updatedAt: true },
   });
 
   if (!project) {
@@ -67,4 +45,40 @@ async function getProjectById(projectId) {
   return project;
 }
 
-module.exports = { createProject, getProjectById, ProjectNotFoundError };
+/**
+ * Lista solo los proyectos donde el usuario tiene una membresia, sin importar
+ * el rol. La privacidad no se filtra aca porque ya esta implicita: si no es
+ * miembro, no aparece.
+ */
+async function listProjectsForUser(userId) {
+  return prisma.project.findMany({
+    where: { members: { some: { userId } } },
+    select: PROJECT_SELECT,
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+/**
+ * Actualiza un proyecto. No valida rol: eso lo resuelve `requireRole('owner')`
+ * antes de llegar al controller.
+ */
+async function updateProject(projectId, data) {
+  return prisma.project.update({
+    where: { id: projectId },
+    data,
+    select: { ...PROJECT_SELECT, updatedAt: true },
+  });
+}
+
+async function deleteProject(projectId) {
+  await prisma.project.delete({ where: { id: projectId } });
+}
+
+module.exports = {
+  createProject,
+  getProjectById,
+  listProjectsForUser,
+  updateProject,
+  deleteProject,
+  ProjectNotFoundError,
+};

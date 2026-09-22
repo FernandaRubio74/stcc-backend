@@ -144,3 +144,120 @@ describe('getProjectById', () => {
     ).rejects.toBeInstanceOf(projectsService.ProjectNotFoundError);
   });
 });
+
+describe('listProjectsForUser', () => {
+  test('devuelve solo los proyectos donde el usuario es miembro', async () => {
+    const user = await crearUsuario('lista@ideator.com');
+    const otro = await crearUsuario('otro@ideator.com');
+
+    await projectsService.createProject({ name: 'Mio 1', userId: user.id });
+    await projectsService.createProject({ name: 'Mio 2', userId: user.id });
+    await projectsService.createProject({ name: 'Ajeno', userId: otro.id });
+
+    const projects = await projectsService.listProjectsForUser(user.id);
+
+    expect(projects).toHaveLength(2);
+    expect(projects.every((p) => p.name !== 'Ajeno')).toBe(true);
+  });
+
+  test('devuelve lista vacia si el usuario no tiene proyectos', async () => {
+    const user = await crearUsuario('sinproyectos@ideator.com');
+
+    const projects = await projectsService.listProjectsForUser(user.id);
+
+    expect(projects).toEqual([]);
+  });
+
+  test('incluye proyectos donde el usuario es miembro pero no owner', async () => {
+    const owner = await crearUsuario('owner-lista@ideator.com');
+    const viewer = await crearUsuario('viewer-lista@ideator.com');
+
+    const project = await projectsService.createProject({
+      name: 'Compartido',
+      userId: owner.id,
+    });
+    await prisma.projectMember.create({
+      data: { userId: viewer.id, projectId: project.id, role: 'viewer' },
+    });
+
+    const projects = await projectsService.listProjectsForUser(viewer.id);
+
+    expect(projects.map((p) => p.id)).toContain(project.id);
+  });
+});
+
+describe('updateProject', () => {
+  test('actualiza los campos recibidos', async () => {
+    const user = await crearUsuario('update@ideator.com');
+    const project = await projectsService.createProject({
+      name: 'Original',
+      userId: user.id,
+    });
+
+    const updated = await projectsService.updateProject(project.id, {
+      name: 'Actualizado',
+    });
+
+    expect(updated.name).toBe('Actualizado');
+    expect(updated.id).toBe(project.id);
+  });
+
+  test('no modifica campos que no fueron enviados', async () => {
+    const user = await crearUsuario('update2@ideator.com');
+    const project = await projectsService.createProject({
+      name: 'Con descripcion',
+      description: 'Original',
+      userId: user.id,
+    });
+
+    const updated = await projectsService.updateProject(project.id, {
+      name: 'Nuevo nombre',
+    });
+
+    expect(updated.description).toBe('Original');
+  });
+
+  test('tira error si el proyecto no existe', async () => {
+    await expect(
+      projectsService.updateProject('00000000-0000-4000-8000-000000000000', {
+        name: 'No existe',
+      })
+    ).rejects.toThrow();
+  });
+});
+
+describe('deleteProject', () => {
+  test('elimina el proyecto', async () => {
+    const user = await crearUsuario('delete@ideator.com');
+    const project = await projectsService.createProject({
+      name: 'A borrar',
+      userId: user.id,
+    });
+
+    await projectsService.deleteProject(project.id);
+
+    const encontrado = await prisma.project.findUnique({ where: { id: project.id } });
+    expect(encontrado).toBeNull();
+  });
+
+  test('elimina en cascada las membresias del proyecto', async () => {
+    const user = await crearUsuario('delete-cascade@ideator.com');
+    const project = await projectsService.createProject({
+      name: 'Con miembros',
+      userId: user.id,
+    });
+
+    await projectsService.deleteProject(project.id);
+
+    const membresias = await prisma.projectMember.findMany({
+      where: { projectId: project.id },
+    });
+    expect(membresias).toHaveLength(0);
+  });
+
+  test('tira error si el proyecto no existe', async () => {
+    await expect(
+      projectsService.deleteProject('00000000-0000-4000-8000-000000000000')
+    ).rejects.toThrow();
+  });
+});
