@@ -29,7 +29,7 @@ function validate(schema, source = 'body') {
         })),
       });
     }
-
+    req[source] = result.data;
     req[source] = result.data;
     return next();
   };
