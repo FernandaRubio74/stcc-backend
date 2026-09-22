@@ -1,7 +1,7 @@
 ﻿/**
  * Guard de rol dentro de un proyecto.
  *
- * Corre despues de `requireProjectMembership`, que ya dejo `req.projectMembership`
+ * Corre después de `requireProjectMembership`, que ya dejo `req.projectMembership`
  * con el rol del usuario. Este middleware solo decide si ese rol alcanza para
  * la accion que se esta por ejecutar (PATCH/DELETE = owner).
  */
