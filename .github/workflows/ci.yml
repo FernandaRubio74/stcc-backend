@@ -60,3 +60,62 @@ jobs:
       - name: Run tests
         run: npm test
 
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideator
+          POSTGRES_PASSWORD: ideator
+          POSTGRES_DB: ideator_e2e_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ideator -d ideator_e2e_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: ideator
+      PGPASSWORD: ideator
+      PGDATABASE: ideator_e2e_db
+      DATABASE_URL: postgresql://ideator:ideator@localhost:5432/ideator_e2e_db?schema=public
+      JWT_SECRET: test_secret_solo_para_ci_no_usar_en_produccion
+      JWT_EXPIRES_IN: 1d
+      PORT: 3000
+      BASE_URL: http://localhost:3000
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run generate
+
+      - name: Run migrations
+        run: npm run migrate
+
+      - name: Start server in background
+        run: nohup node src/server.js > server.log 2>&1 &
+
+      - name: Wait for server to be ready
+        run: npx wait-on http://localhost:3000/health --timeout 30000
+
+      - name: Run E2E suite
+        run: npm run test:e2e
+
+      - name: Show server logs if E2E failed
+        if: failure()
+        run: cat server.log
