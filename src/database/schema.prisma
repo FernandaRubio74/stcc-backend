@@ -36,6 +36,15 @@ enum DefinitionMessageRole {
   assistant
 }
 
+// EPIC-05, US-021: una version es DRAFT mientras se edita colaborativamente
+// y pasa a APPROVED (inmutable) cuando el owner la aprueba. Nunca se
+// sobreescribe una version aprobada: una edicion posterior crea una nueva
+// version DRAFT.
+enum DataModelVersionStatus {
+  DRAFT
+  APPROVED
+}
+
 // ------------------------------------------------------------
 // User
 // ------------------------------------------------------------
@@ -59,10 +68,12 @@ model User {
   createdUsers User[]  @relation("UserCreatedBy")
 
   // --- Relaciones inversas ---
-  ownedProjects      Project[]           @relation("ProjectCreatedBy")
-  memberships        ProjectMember[]     @relation("MemberUser")
-  addedMemberships   ProjectMember[]     @relation("MemberCreatedBy")
-  definitionMessages DefinitionMessage[] @relation("DefinitionMessageAuthor")
+  ownedProjects         Project[]           @relation("ProjectCreatedBy")
+  memberships           ProjectMember[]     @relation("MemberUser")
+  addedMemberships      ProjectMember[]     @relation("MemberCreatedBy")
+  definitionMessages    DefinitionMessage[] @relation("DefinitionMessageAuthor")
+  authoredModelVersions DataModelVersion[]  @relation("DataModelVersionAuthor")
+  approvedModelVersions DataModelVersion[]  @relation("DataModelVersionApprover")
 
   // Evita que dos usuarios locales/SSO compartan la misma identidad externa
   @@unique([authProvider, providerId], map: "uq_user_provider")
@@ -90,6 +101,7 @@ model Project {
   definition         ProjectDefinition?
   definitionMessages DefinitionMessage[]
   blockingQuestions  BlockingQuestion[]
+  dataModelVersions  DataModelVersion[]
 
   @@map("projects")
 }
@@ -178,4 +190,33 @@ model BlockingQuestion {
 
   @@index([projectId, stage, resolvedAt])
   @@map("blocking_questions")
+}
+
+// ------------------------------------------------------------
+// DataModelVersion (US-019/US-020/US-021) — entidades propuestas (por la
+// IA o editadas a mano) para el modelo fisico de base de datos. `entities`
+// y el diagrama Mermaid derivado se guardan como snapshot completo por
+// version: una vez APPROVED, la fila es inmutable (ver enum) y cualquier
+// edicion posterior crea una version DRAFT nueva.
+// ------------------------------------------------------------
+model DataModelVersion {
+  id            String                 @id @default(uuid()) @db.Uuid
+  projectId     String                 @map("project_id") @db.Uuid
+  project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                    @map("version_number")
+  status        DataModelVersionStatus @default(DRAFT)
+  entities      Json
+  diagram       String?
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("DataModelVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("DataModelVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_data_model_version")
+  @@index([projectId, status])
+  @@map("data_model_versions")
 }
