@@ -61,7 +61,7 @@ async function recommendArchitecture(projectId, _userId, deps = {}) {
       catalog: ARCHITECTURE_CATALOG,
     }),
     schema: aiArchitectureRecommendationSchema,
-    maxOutputTokens: 1024,
+    maxOutputTokens: 8192,
   });
 
   if (!ARCHITECTURE_CATALOG.some((scenario) => scenario.id === recommendedId)) {
