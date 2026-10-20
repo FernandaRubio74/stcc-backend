@@ -31,4 +31,44 @@ describe('validateMvpCoverage', () => {
 
     expect(() => validateMvpCoverage(screens, MVP_SCOPE)).toThrow(MvpCoverageError);
   });
+
+  test('cubre una funcionalidad del MVP descrita con una oracion larga (wizard real), sin repetirla textualmente', () => {
+    const longScope = {
+      in: ['Panel simple para dueños: alta de sede y canchas, edición básica de datos'],
+      out: [],
+    };
+    const screens = [screen('Panel del dueño', 'Permite gestionar sedes y canchas, editando sus datos basicos')];
+
+    expect(() => validateMvpCoverage(screens, longScope)).not.toThrow();
+  });
+
+  test('sigue detectando una funcionalidad del MVP sin ninguna pantalla relacionada, incluso con oraciones largas', () => {
+    const longScope = {
+      in: ['Panel simple para dueños: alta de sede y canchas, edición básica de datos'],
+      out: [],
+    };
+    const screens = [screen('Login', 'Autenticacion de usuarios')];
+
+    expect(() => validateMvpCoverage(screens, longScope)).toThrow(MvpCoverageError);
+  });
+
+  test('ignora entradas de mvpScope.in redactadas como negacion (el wizard a veces repite ahi una exclusion)', () => {
+    const scopeWithNegations = {
+      in: ['Reserva como invitado', 'Sin pagos online', 'Sin reseñas/comentarios'],
+      out: ['Pagos online e integraciones de cobro', 'Sistema de reseñas/comentarios'],
+    };
+    const screens = [screen('Reserva', 'Permite reservar como invitado con nombre y telefono')];
+
+    expect(() => validateMvpCoverage(screens, scopeWithNegations)).not.toThrow();
+  });
+
+  test('no marca una pantalla legitima como fuga solo por compartir alguna palabra con una frase aclaratoria de out-of-scope', () => {
+    const scope = {
+      in: ['Reserva como invitado'],
+      out: ['Cuentas/registro del jugador (el jugador reserva como invitado)'],
+    };
+    const screens = [screen('Reserva', 'Permite al jugador reservar como invitado con nombre y telefono')];
+
+    expect(() => validateMvpCoverage(screens, scope)).not.toThrow();
+  });
 });

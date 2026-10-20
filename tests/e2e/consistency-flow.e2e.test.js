@@ -70,7 +70,7 @@ async function createProjectWithDefinition(email) {
 
 const BASE_ENTITIES = [
   { name: 'Ticket', attributes: [{ name: 'id', type: 'uuid', primaryKey: true }, { name: 'title', type: 'string' }] },
-  { name: 'Agent', attributes: [{ name: 'id', type: 'uuid', primaryKey: true }] },
+  { name: 'Category', attributes: [{ name: 'id', type: 'uuid', primaryKey: true }] },
 ];
 
 const BASE_ENDPOINTS = [
@@ -83,9 +83,9 @@ const BASE_ENDPOINTS = [
   },
   {
     method: 'GET',
-    path: '/agents',
-    description: 'Lista los agentes registrados',
-    resourceEntity: 'Agent',
+    path: '/categories',
+    description: 'Lista las categorias registradas',
+    resourceEntity: 'Category',
     responses: [{ status: 200, description: 'ok' }],
   },
 ];
@@ -134,7 +134,7 @@ describe('E2E - motor de consistencia: bloqueo y liberacion automatica', () => {
     const { token, projectId } = await createProjectWithDefinition('e2e-consistencia-entidades@ideator.com');
     await setUpConsistentBaseline(token, projectId);
 
-    // Se aprueba un nuevo modelo de datos sin "Agent", que el api-spec (ya aprobado) todavia referencia.
+    // Se aprueba un nuevo modelo de datos sin "Category", que el api-spec (ya aprobado) todavia referencia.
     const drift = await request(BASE_URL)
       .patch(`/projects/${projectId}/data-model/entities`)
       .set('Authorization', token)
@@ -150,7 +150,7 @@ describe('E2E - motor de consistencia: bloqueo y liberacion automatica', () => {
     expect(blockedGeneration.status).toBe(409);
     expect(blockedGeneration.body.issues.map((issue) => issue.rule)).toContain('entities-coverage');
 
-    // Se corrige aprobando un modelo que vuelve a incluir "Agent" — sin tocar la API ni resetear nada a mano.
+    // Se corrige aprobando un modelo que vuelve a incluir "Category" — sin tocar la API ni resetear nada a mano.
     await request(BASE_URL)
       .patch(`/projects/${projectId}/data-model/entities`)
       .set('Authorization', token)

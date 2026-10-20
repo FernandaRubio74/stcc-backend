@@ -53,11 +53,31 @@ describe('checkTargetUsersCoverage', () => {
   });
 
   test('reporta un item si el tipo de usuario no aparece en ninguna etapa posterior', () => {
-    const issues = checkTargetUsersCoverage({ definition: DEFINITION, dataModel: DATA_MODEL });
+    const unrelatedDataModel = { entities: [{ name: 'Factura', attributes: [{ name: 'monto' }] }] };
+    const issues = checkTargetUsersCoverage({ definition: DEFINITION, dataModel: unrelatedDataModel });
 
     expect(issues).toHaveLength(1);
     expect(issues[0].rule).toBe('target-users-coverage');
     expect(issues[0].message).toContain('Agente de soporte');
+  });
+
+  test('reporta un item si el tipo de usuario es una frase compuesta que no aparece en ninguna etapa, aunque alguna palabra suelta sea ambigua', () => {
+    const definition = { targetUsers: [{ label: 'Dueño de cancha', description: 'x' }] };
+    const dataModel = { entities: [{ name: 'Usuario', attributes: [{ name: 'nombre' }] }] };
+
+    const issues = checkTargetUsersCoverage({ definition, dataModel, apiSpec: null, screenMap: null });
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].message).toContain('Dueño de cancha');
+  });
+
+  test('cubre un tipo de usuario compuesto cuando sus palabras clave aparecen por separado en distintas etapas', () => {
+    const definition = { targetUsers: [{ label: 'Dueño de cancha', description: 'x' }] };
+    const dataModel = { entities: [{ name: 'Dueno', attributes: [] }, { name: 'Cancha', attributes: [] }] };
+
+    const issues = checkTargetUsersCoverage({ definition, dataModel, apiSpec: null, screenMap: null });
+
+    expect(issues).toEqual([]);
   });
 });
 

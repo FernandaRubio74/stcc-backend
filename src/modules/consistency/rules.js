@@ -13,13 +13,58 @@
  * ya es fijo y esta validado en cada capa por su propio schema). La regla
  * `targetUsersCoverage` chequea que cada tipo de usuario definido este
  * mencionado en al menos una etapa posterior (modelo de datos, API o
- * pantallas) — la misma heuristica de texto que coverage.js (screens).
+ * pantallas) — la misma heuristica por palabras clave que coverage.js
+ * (screens), por el mismo motivo: en pruebas manuales reales, un tipo de
+ * usuario como "Dueño de cancha" no aparece como frase exacta en ningun
+ * lado (el modelo/API/pantallas usan "dueño" y "cancha" por separado), asi
+ * que un substring exacto de la frase completa da falsos negativos.
  */
+
+const STOPWORDS = new Set([
+  'para', 'como', 'desde', 'hacia', 'hasta', 'sobre', 'entre', 'pero', 'esta', 'esto', 'este',
+  'todo', 'toda', 'todos', 'todas', 'cada', 'otro', 'otra', 'tiene', 'tener', 'puede', 'debe',
+  'cuando', 'donde', 'mediante',
+]);
+const STEM_LENGTH = 5;
 
 function normalize(text) {
   return (text || '').toLowerCase();
 }
 
+function stem(word) {
+  return word.slice(0, STEM_LENGTH);
+}
+
+function significantStems(text) {
+  return normalize(text)
+    .split(/[^a-záéíóúñ0-9]+/)
+    .filter((word) => word.length >= 4 && !STOPWORDS.has(word))
+    .map(stem);
+}
+
+// requireAll=false (default, para "falta cobertura"): alcanza con la mitad
+// de las palabras clave — un falso negativo bloquearia sin razon. true
+// (para "fuga de alcance"): exige todas — un falso positivo bloquearia
+// igual sin razon.
+function mentionsPhrase(haystack, phrase, { requireAll = false } = {}) {
+  const keywords = significantStems(phrase);
+  if (keywords.length === 0) return haystack.includes(normalize(phrase));
+
+  const matches = keywords.filter((word) => haystack.includes(word)).length;
+  return requireAll ? matches === keywords.length : matches >= Math.ceil(keywords.length / 2);
+}
+
+// LIMITACION CONOCIDA (visto en pruebas manuales reales, no resuelta todavia):
+// el haystack junta TODO el proyecto (todas las pantallas, toda la API) en un
+// solo string antes de buscar palabras clave. Con requireAll=true esto puede
+// dar un falso positivo si dos funcionalidades distintas y legitimas (ej. una
+// pantalla de registro del dueño + una pantalla de reserva del jugador)
+// juntas contienen, repartidas entre ambas, todas las palabras clave de una
+// frase de mvpScope.out que ninguna de las dos implementa en realidad (ej.
+// "Cuentas/registro del jugador"). La forma correcta de resolverlo es la
+// misma que ya usa coverage.js (screens): comparar por pantalla/entidad/
+// endpoint individual en vez de un unico blob combinado — pendiente, es un
+// cambio mas grande que excede un ajuste de heuristica puntual.
 function buildHaystack({ dataModel, apiSpec, screenMap } = {}) {
   const parts = [];
 
@@ -61,7 +106,7 @@ function checkTargetUsersCoverage({ definition, dataModel, apiSpec, screenMap })
   const haystack = buildHaystack({ dataModel, apiSpec, screenMap });
 
   return targetUsers
-    .filter((user) => !haystack.includes(normalize(user.label)))
+    .filter((user) => !mentionsPhrase(haystack, user.label))
     .map((user) => ({
       rule: 'target-users-coverage',
       stages: ['definition', 'data-model', 'api-spec', 'screens'],
@@ -77,7 +122,7 @@ function checkMvpScopeDrift({ definition, apiSpec, screenMap }) {
   const haystack = buildHaystack({ apiSpec, screenMap });
 
   return outScope
-    .filter((feature) => haystack.includes(normalize(feature)))
+    .filter((feature) => mentionsPhrase(haystack, feature, { requireAll: true }))
     .map((feature) => ({
       rule: 'mvp-scope-drift',
       stages: ['definition', 'api-spec', 'screens'],
