@@ -83,6 +83,7 @@ model User {
   approvedModelVersions DataModelVersion[]  @relation("DataModelVersionApprover")
   authoredApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionAuthor")
   approvedApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionApprover")
+  authoredScreenMaps      ScreenMap[]       @relation("ScreenMapAuthor")
 
   // Evita que dos usuarios locales/SSO compartan la misma identidad externa
   @@unique([authProvider, providerId], map: "uq_user_provider")
@@ -112,6 +113,7 @@ model Project {
   blockingQuestions  BlockingQuestion[]
   dataModelVersions  DataModelVersion[]
   apiSpecVersions    ApiSpecVersion[]
+  screenMap          ScreenMap?
 
   @@map("projects")
 }
@@ -256,4 +258,26 @@ model ApiSpecVersion {
   @@unique([projectId, versionNumber], map: "uq_api_spec_version")
   @@index([projectId, status])
   @@map("api_spec_versions")
+}
+
+// ------------------------------------------------------------
+// ScreenMap (US-027) — mapa de pantallas, navegacion y mockups de baja
+// fidelidad. A diferencia de DataModelVersion/ApiSpecVersion, el DoD no
+// pide versionado DRAFT/APPROVED para esta etapa: es una fila 1:1 por
+// proyecto que se sobreescribe al regenerar (mismo patron que
+// ProjectDefinition).
+// ------------------------------------------------------------
+model ScreenMap {
+  projectId  String  @id @map("project_id") @db.Uuid
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  screens    Json
+  navigation Json
+  diagram    String
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("ScreenMapAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@map("screen_maps")
 }
