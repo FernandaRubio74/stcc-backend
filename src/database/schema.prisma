@@ -45,6 +45,13 @@ enum DataModelVersionStatus {
   APPROVED
 }
 
+// EPIC-06, US-024: mismo ciclo de vida que DataModelVersionStatus (DRAFT
+// editable, APPROVED inmutable) aplicado a la especificacion de API.
+enum ApiSpecVersionStatus {
+  DRAFT
+  APPROVED
+}
+
 // ------------------------------------------------------------
 // User
 // ------------------------------------------------------------
@@ -74,6 +81,8 @@ model User {
   definitionMessages    DefinitionMessage[] @relation("DefinitionMessageAuthor")
   authoredModelVersions DataModelVersion[]  @relation("DataModelVersionAuthor")
   approvedModelVersions DataModelVersion[]  @relation("DataModelVersionApprover")
+  authoredApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionAuthor")
+  approvedApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionApprover")
 
   // Evita que dos usuarios locales/SSO compartan la misma identidad externa
   @@unique([authProvider, providerId], map: "uq_user_provider")
@@ -102,6 +111,7 @@ model Project {
   definitionMessages DefinitionMessage[]
   blockingQuestions  BlockingQuestion[]
   dataModelVersions  DataModelVersion[]
+  apiSpecVersions    ApiSpecVersion[]
 
   @@map("projects")
 }
@@ -219,4 +229,31 @@ model DataModelVersion {
   @@unique([projectId, versionNumber], map: "uq_data_model_version")
   @@index([projectId, status])
   @@map("data_model_versions")
+}
+
+// ------------------------------------------------------------
+// ApiSpecVersion (US-023/US-024) — endpoints propuestos (por la IA o
+// editados a mano) para la especificacion de la API. Mismo esquema de
+// versionado que DataModelVersion: snapshot completo por version, DRAFT
+// editable in-place, APPROVED inmutable.
+// ------------------------------------------------------------
+model ApiSpecVersion {
+  id            String               @id @default(uuid()) @db.Uuid
+  projectId     String               @map("project_id") @db.Uuid
+  project       Project              @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                  @map("version_number")
+  status        ApiSpecVersionStatus @default(DRAFT)
+  endpoints     Json
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("ApiSpecVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("ApiSpecVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_api_spec_version")
+  @@index([projectId, status])
+  @@map("api_spec_versions")
 }
