@@ -25,4 +25,16 @@ module.exports = {
     clientSecret: process.env.SSO_CLIENT_SECRET,
     callbackUrl: process.env.SSO_CALLBACK_URL,
   },
+  // Igual que sso: no required(), CI y entornos sin IA configurada deben
+  // poder arrancar; ai.client falla en tiempo de uso si faltan credenciales.
+  ai: {
+    endpoint: process.env.AI_ENDPOINT,
+    apiKey: process.env.AI_PROVIDER_API_KEY,
+    deployment: process.env.AI_DEPLOYMENT,
+    // gpt-5 es un modelo de razonamiento: una respuesta real (con historial
+    // de conversacion) tardo ~22s en pruebas manuales contra Azure. 15s se
+    // quedaba corto y disparaba timeouts espurios.
+    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 45000,
+    maxRetries: Number(process.env.AI_MAX_RETRIES) || 1,
+  },
 };

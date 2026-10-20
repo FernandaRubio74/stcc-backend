@@ -24,6 +24,18 @@ enum ProjectRole {
   viewer
 }
 
+// Etapas del wizard conversacional (EPIC-05). Se van agregando a medida que
+// se implementan los sprints siguientes (modelo de datos, spec de API, etc.).
+enum DefinitionStage {
+  PROBLEM_CONTEXT
+  TARGET_USERS_SCOPE
+}
+
+enum DefinitionMessageRole {
+  user
+  assistant
+}
+
 // ------------------------------------------------------------
 // User
 // ------------------------------------------------------------
@@ -43,13 +55,14 @@ model User {
 
   // Auto-referencia: quién creó este usuario (null = se registró solo)
   createdById  String? @map("created_by") @db.Uuid
-  createdBy    User?   @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdBy    User?   @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   createdUsers User[]  @relation("UserCreatedBy")
 
   // --- Relaciones inversas ---
-  ownedProjects    Project[]       @relation("ProjectCreatedBy")
-  memberships      ProjectMember[] @relation("MemberUser")
-  addedMemberships ProjectMember[] @relation("MemberCreatedBy")
+  ownedProjects      Project[]           @relation("ProjectCreatedBy")
+  memberships        ProjectMember[]     @relation("MemberUser")
+  addedMemberships   ProjectMember[]     @relation("MemberCreatedBy")
+  definitionMessages DefinitionMessage[] @relation("DefinitionMessageAuthor")
 
   // Evita que dos usuarios locales/SSO compartan la misma identidad externa
   @@unique([authProvider, providerId], map: "uq_user_provider")
@@ -70,9 +83,13 @@ model Project {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   createdById String @map("created_by") @db.Uuid
-  createdBy   User   @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  createdBy   User   @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   members ProjectMember[]
+
+  definition         ProjectDefinition?
+  definitionMessages DefinitionMessage[]
+  blockingQuestions  BlockingQuestion[]
 
   @@map("projects")
 }
@@ -84,9 +101,9 @@ model ProjectMember {
   id String @id @default(uuid()) @db.Uuid
 
   userId    String      @map("user_id") @db.Uuid
-  user      User        @relation("MemberUser", fields: [userId], references: [id])
+  user      User        @relation("MemberUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   projectId String      @map("project_id") @db.Uuid
-  project   Project     @relation(fields: [projectId], references: [id])
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   role      ProjectRole @default(viewer)
 
   // --- Auditoría ---
@@ -94,9 +111,71 @@ model ProjectMember {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   createdById String? @map("created_by") @db.Uuid
-  createdBy   User?   @relation("MemberCreatedBy", fields: [createdById], references: [id])
+  createdBy   User?   @relation("MemberCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   // Un usuario no puede tener más de una membresía activa por proyecto
   @@unique([userId, projectId], map: "uq_project_member")
   @@map("project_members")
+}
+
+// ------------------------------------------------------------
+// ProjectDefinition (EPIC-05, US-015/US-016) — estado estructurado del
+// wizard conversacional. Cardinalidad 1:1 con Project: cada proyecto tiene
+// a lo sumo una definicion, creada de forma perezosa en el primer mensaje.
+// ------------------------------------------------------------
+model ProjectDefinition {
+  projectId    String          @id @map("project_id") @db.Uuid
+  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  currentStage DefinitionStage @default(PROBLEM_CONTEXT) @map("current_stage")
+
+  // US-015: sintesis del problema/contexto, mantenida por la IA turno a turno.
+  problemSummary String? @map("problem_summary")
+
+  // US-016: estructurados; el modelo reescribe el valor completo en cada
+  // turno (no hace merge de deltas) para evitar inconsistencias acumuladas.
+  targetUsers Json? @map("target_users")
+  mvpScope    Json? @map("mvp_scope")
+  userJourney Json? @map("user_journey")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("project_definitions")
+}
+
+// ------------------------------------------------------------
+// DefinitionMessage (US-015.3) — historial de conversacion del wizard.
+// ------------------------------------------------------------
+model DefinitionMessage {
+  id        String                @id @default(uuid()) @db.Uuid
+  projectId String                @map("project_id") @db.Uuid
+  project   Project               @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  stage     DefinitionStage
+  role      DefinitionMessageRole
+  content   String
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("DefinitionMessageAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // Los mensajes del asistente no tienen autor humano.
+  @@index([projectId, createdAt])
+  @@map("definition_messages")
+}
+
+// ------------------------------------------------------------
+// BlockingQuestion (US-017) — preguntas que impiden avanzar de etapa
+// mientras no esten resueltas.
+// ------------------------------------------------------------
+model BlockingQuestion {
+  id        String          @id @default(uuid()) @db.Uuid
+  projectId String          @map("project_id") @db.Uuid
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  stage     DefinitionStage
+  question  String
+
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz
+
+  @@index([projectId, stage, resolvedAt])
+  @@map("blocking_questions")
 }
