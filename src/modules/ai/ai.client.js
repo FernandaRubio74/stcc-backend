@@ -54,7 +54,12 @@ async function requestOnce({
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== 'string' || content.length === 0) {
-      throw new AiProviderError('El proveedor de IA respondio sin contenido');
+      // Visto en pruebas reales: con prompts mas largos (modelo de datos, API,
+      // pantallas), gpt-5 puede agotar el budget entero en tokens de
+      // razonamiento ocultos y no dejar nada de contenido visible, de forma
+      // intermitente (mismo request, mismo prompt, distinto resultado) — por
+      // eso es retryable, a diferencia de un 4xx real del proveedor.
+      throw new AiProviderError('El proveedor de IA respondio sin contenido', { retryable: true });
     }
     return content;
   } catch (err) {
@@ -81,8 +86,11 @@ async function requestOnce({
 // gpt-5 es un modelo de razonamiento: consume tokens de "pensamiento" ocultos
 // antes de emitir contenido visible, y ese consumo varia con la complejidad
 // del prompt. Un budget bajo puede agotarse entero en razonamiento y dejar
-// el contenido visible vacio (visto en pruebas manuales con 800 y 1200).
-async function completeWithRetry({ systemPrompt, messages, maxOutputTokens = 4096 }, deps = {}) {
+// el contenido visible vacio (visto en pruebas manuales con 800 y 1200, y de
+// nuevo con 4096 en prompts mas largos como el de modelo de datos: hasta
+// ~2500 tokens de razonamiento + ~2200 de contenido, cerca del limite y a
+// veces por encima). 8192 da margen real observado en pruebas.
+async function completeWithRetry({ systemPrompt, messages, maxOutputTokens = 8192 }, deps = {}) {
   const endpoint = deps.endpoint ?? env.ai.endpoint;
   const apiKey = deps.apiKey ?? env.ai.apiKey;
   const deployment = deps.deployment ?? env.ai.deployment;
