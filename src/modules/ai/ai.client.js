@@ -85,12 +85,15 @@ async function requestOnce({
  */
 // gpt-5 es un modelo de razonamiento: consume tokens de "pensamiento" ocultos
 // antes de emitir contenido visible, y ese consumo varia con la complejidad
-// del prompt. Un budget bajo puede agotarse entero en razonamiento y dejar
-// el contenido visible vacio (visto en pruebas manuales con 800 y 1200, y de
-// nuevo con 4096 en prompts mas largos como el de modelo de datos: hasta
-// ~2500 tokens de razonamiento + ~2200 de contenido, cerca del limite y a
-// veces por encima). 8192 da margen real observado en pruebas.
-async function completeWithRetry({ systemPrompt, messages, maxOutputTokens = 8192 }, deps = {}) {
+// del prompt — y tambien de una llamada a otra con el mismo prompt exacto
+// (visto en pruebas manuales: la misma generacion de api-spec gasto una vez
+// 8192 tokens enteros en razonamiento, dejando el contenido vacio, y la
+// siguiente gasto solo 2944). Por eso el budget tiene que sobrar para el
+// peor caso, no alcanzar para el tipico: 4096 y 8192 ya se vieron agotados
+// enteros en razonamiento en distintas tareas. 16384 dio margen real en
+// pruebas incluso para la tarea mas pesada (api-spec, CRUD completo con
+// 401/403/404 por entidad).
+async function completeWithRetry({ systemPrompt, messages, maxOutputTokens = 16384 }, deps = {}) {
   const endpoint = deps.endpoint ?? env.ai.endpoint;
   const apiKey = deps.apiKey ?? env.ai.apiKey;
   const deployment = deps.deployment ?? env.ai.deployment;
