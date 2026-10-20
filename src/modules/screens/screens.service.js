@@ -51,7 +51,7 @@ async function generateScreenMap(projectId, userId, deps = {}) {
     systemPrompt: SCREEN_MAP_SYSTEM_PROMPT,
     userContent: buildScreenMapUserContent({ mvpScope, endpoints: apiSpec.approved.endpoints }),
     schema: aiScreenMapResponseSchema,
-    maxOutputTokens: 4096,
+    maxOutputTokens: 8192,
   });
 
   validateMvpCoverage(screens, mvpScope);
