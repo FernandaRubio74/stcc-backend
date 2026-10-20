@@ -104,6 +104,21 @@ describe('completeWithRetry', () => {
     ).rejects.toThrow(AiTimeoutError);
   });
 
+  test('reintenta una respuesta sin contenido (razonamiento agoto el budget) y devuelve el contenido del segundo intento', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: '' } }] }))
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: 'listo' } }] }));
+
+    const content = await completeWithRetry(
+      { systemPrompt: 's', messages: [] },
+      { ...BASE_DEPS, fetch: fetchMock }
+    );
+
+    expect(content).toBe('listo');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   test('lanza AiProviderError si falta configuracion del proveedor', async () => {
     await expect(
       completeWithRetry(
