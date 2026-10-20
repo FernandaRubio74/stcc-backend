@@ -3,7 +3,8 @@
  * (reply/stageComplete/blockingQuestions/extracted) sobre la respuesta cruda
  * del proveedor.
  */
-const { requestStructuredTurn } = require('../../src/modules/ai/ai.service');
+const { z } = require('zod');
+const { requestStructuredTurn, requestStructuredJson } = require('../../src/modules/ai/ai.service');
 const { AiResponseValidationError } = require('../../src/modules/ai/ai.errors');
 
 function fetchReturning(content) {
@@ -75,6 +76,41 @@ describe('requestStructuredTurn', () => {
     await expect(
       requestStructuredTurn(
         { systemPrompt: 's', messages: [] },
+        { ...DEPS, fetch: fetchReturning(content) }
+      )
+    ).rejects.toThrow(AiResponseValidationError);
+  });
+});
+
+describe('requestStructuredJson', () => {
+  const schema = z.object({ items: z.array(z.string()).min(1) });
+
+  test('parsea y valida la respuesta contra el schema dado', async () => {
+    const content = JSON.stringify({ items: ['a', 'b'] });
+
+    const result = await requestStructuredJson(
+      { systemPrompt: 's', userContent: 'u', schema },
+      { ...DEPS, fetch: fetchReturning(content) }
+    );
+
+    expect(result).toEqual({ items: ['a', 'b'] });
+  });
+
+  test('lanza AiResponseValidationError si el contenido no es JSON', async () => {
+    await expect(
+      requestStructuredJson(
+        { systemPrompt: 's', userContent: 'u', schema },
+        { ...DEPS, fetch: fetchReturning('no es json') }
+      )
+    ).rejects.toThrow(AiResponseValidationError);
+  });
+
+  test('lanza AiResponseValidationError si la respuesta no cumple el schema', async () => {
+    const content = JSON.stringify({ items: [] });
+
+    await expect(
+      requestStructuredJson(
+        { systemPrompt: 's', userContent: 'u', schema },
         { ...DEPS, fetch: fetchReturning(content) }
       )
     ).rejects.toThrow(AiResponseValidationError);
