@@ -84,6 +84,7 @@ model User {
   authoredApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionAuthor")
   approvedApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionApprover")
   authoredScreenMaps      ScreenMap[]       @relation("ScreenMapAuthor")
+  selectedArchitectures   ProjectArchitecture[] @relation("ProjectArchitectureSelector")
 
   // Evita que dos usuarios locales/SSO compartan la misma identidad externa
   @@unique([authProvider, providerId], map: "uq_user_provider")
@@ -114,6 +115,7 @@ model Project {
   dataModelVersions  DataModelVersion[]
   apiSpecVersions    ApiSpecVersion[]
   screenMap          ScreenMap?
+  architecture       ProjectArchitecture?
 
   @@map("projects")
 }
@@ -280,4 +282,28 @@ model ScreenMap {
   createdBy   User?    @relation("ScreenMapAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@map("screen_maps")
+}
+
+// ------------------------------------------------------------
+// ProjectArchitecture (US-028) — recomendacion de la IA (de un catalogo
+// fijo en codigo, ver architecture/catalog.js) y la seleccion final del
+// usuario (que puede coincidir con la recomendacion o ser una eleccion
+// explicita de otra opcion del catalogo). 1:1 por proyecto: no hay
+// historial, la ultima recomendacion/seleccion es la vigente.
+// ------------------------------------------------------------
+model ProjectArchitecture {
+  projectId     String    @id @map("project_id") @db.Uuid
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  recommendedId String?   @map("recommended_id")
+  justification String?
+  selectedId    String?   @map("selected_id")
+  selectedAt    DateTime? @map("selected_at") @db.Timestamptz
+
+  selectedById String? @map("selected_by") @db.Uuid
+  selectedBy   User?   @relation("ProjectArchitectureSelector", fields: [selectedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("project_architectures")
 }
