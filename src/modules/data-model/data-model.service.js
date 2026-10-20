@@ -82,7 +82,7 @@ async function generateDataModel(projectId, userId, deps = {}) {
     systemPrompt: DATA_MODEL_SYSTEM_PROMPT,
     userContent: buildDataModelUserContent(definition),
     schema: aiDataModelResponseSchema,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 16384,
   });
 
   return persistDraft(prismaClient, projectId, userId, entities);

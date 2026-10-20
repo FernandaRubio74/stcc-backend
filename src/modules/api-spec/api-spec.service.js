@@ -88,7 +88,7 @@ async function generateApiSpec(projectId, userId, deps = {}) {
     systemPrompt: API_SPEC_SYSTEM_PROMPT,
     userContent: buildApiSpecUserContent(dataModel.entities),
     schema: aiApiSpecResponseSchema,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 16384,
   });
 
   validateEndpointsAgainstDataModel(endpoints, dataModel.entities);
