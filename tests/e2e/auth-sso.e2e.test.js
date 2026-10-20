@@ -1,10 +1,13 @@
-﻿/**
+/**
  * T-013.2 - E2E de login via SSO (proveedor simulado).
  *
  * La app corre en este mismo proceso con Postgres real. Lo unico que se
  * simula es el cliente de Google (src/config/googleOAuth), el limite externo.
  * Se prueba el flujo completo: callback SSO -> usuario creado en la base ->
  * token usable en rutas protegidas.
+ *
+ * El callback nunca responde JSON: redirige (302) al frontend con la sesion
+ * en la query string (ver T-011.2/T-011.3, fix/T-011-sso-callback-redirect).
  */
 jest.mock("../../src/config/googleOAuth", () => ({
   googleOAuthClient: {
@@ -26,6 +29,10 @@ function googleResponde({ email, name, sub }) {
   });
 }
 
+function locationDe(res) {
+  return new URL(res.headers.location);
+}
+
 async function cleanDatabase() {
   await prisma.projectMember.deleteMany({});
   await prisma.project.deleteMany({});
@@ -43,14 +50,16 @@ afterAll(async () => {
 });
 
 describe("E2E - Login via SSO", () => {
-  test("un usuario nuevo se provisiona y recibe un token", async () => {
+  test("un usuario nuevo se provisiona y se redirige al frontend con un token", async () => {
     googleResponde({ email: "sso-nuevo@ideator.com", name: "Persona SSO", sub: "google-sub-1" });
 
-    const res = await request(app).get("/auth/sso/callback?code=codigo-valido");
+    const res = await request(app).get("/auth/sso/callback?code=codigo-valido").redirects(0);
 
-    expect(res.status).toBe(200);
-    expect(res.body.token).toEqual(expect.any(String));
-    expect(res.body.user.email).toBe("sso-nuevo@ideator.com");
+    expect(res.status).toBe(302);
+    const location = locationDe(res);
+    expect(location.pathname).toBe("/auth/sso/callback");
+    expect(location.searchParams.get("token")).toEqual(expect.any(String));
+    expect(location.searchParams.get("email")).toBe("sso-nuevo@ideator.com");
 
     const enBase = await prisma.user.findUnique({ where: { email: "sso-nuevo@ideator.com" } });
     expect(enBase).not.toBeNull();
@@ -61,8 +70,8 @@ describe("E2E - Login via SSO", () => {
   test("el token de SSO funciona en rutas protegidas", async () => {
     googleResponde({ email: "sso-flujo@ideator.com", name: "Flujo SSO", sub: "google-sub-2" });
 
-    const login = await request(app).get("/auth/sso/callback?code=codigo-valido");
-    const token = `Bearer ${login.body.token}`;
+    const login = await request(app).get("/auth/sso/callback?code=codigo-valido").redirects(0);
+    const token = `Bearer ${locationDe(login).searchParams.get("token")}`;
 
     const creado = await request(app)
       .post("/projects")
@@ -78,28 +87,34 @@ describe("E2E - Login via SSO", () => {
   test("un segundo login SSO no duplica al usuario", async () => {
     googleResponde({ email: "sso-repetido@ideator.com", name: "Repetido", sub: "google-sub-3" });
 
-    const primero = await request(app).get("/auth/sso/callback?code=codigo-valido");
-    const segundo = await request(app).get("/auth/sso/callback?code=codigo-valido");
+    const primero = await request(app).get("/auth/sso/callback?code=codigo-valido").redirects(0);
+    const segundo = await request(app).get("/auth/sso/callback?code=codigo-valido").redirects(0);
 
-    expect(primero.status).toBe(200);
-    expect(segundo.status).toBe(200);
-    expect(segundo.body.user.id).toBe(primero.body.user.id);
+    expect(primero.status).toBe(302);
+    expect(segundo.status).toBe(302);
+    expect(locationDe(segundo).searchParams.get("id")).toBe(locationDe(primero).searchParams.get("id"));
     expect(await prisma.user.count({ where: { email: "sso-repetido@ideator.com" } })).toBe(1);
   });
 
-  test("sin code responde 401 y no crea usuarios", async () => {
-    const res = await request(app).get("/auth/sso/callback");
+  test("sin code redirige al login con ssoError y no crea usuarios", async () => {
+    const res = await request(app).get("/auth/sso/callback").redirects(0);
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
+    const location = locationDe(res);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("ssoError")).toBeTruthy();
     expect(await prisma.user.count()).toBe(0);
   });
 
-  test("si Google rechaza el code responde 401 y no crea usuarios", async () => {
+  test("si Google rechaza el code redirige al login con ssoError y no crea usuarios", async () => {
     googleOAuthClient.getToken.mockRejectedValue(new Error("invalid_grant"));
 
-    const res = await request(app).get("/auth/sso/callback?code=codigo-invalido");
+    const res = await request(app).get("/auth/sso/callback?code=codigo-invalido").redirects(0);
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(302);
+    const location = locationDe(res);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("ssoError")).toBeTruthy();
     expect(await prisma.user.count()).toBe(0);
   });
 });
