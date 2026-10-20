@@ -10,6 +10,7 @@ const dataModelRoutes = require('./modules/data-model/data-model.routes');
 const apiSpecRoutes = require('./modules/api-spec/api-spec.routes');
 const screensRoutes = require('./modules/screens/screens.routes');
 const architectureRoutes = require('./modules/architecture/architecture.routes');
+const consistencyRoutes = require('./modules/consistency/consistency.routes');
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use('/projects', dataModelRoutes);
 app.use('/projects', apiSpecRoutes);
 app.use('/projects', screensRoutes);
 app.use('/projects', architectureRoutes);
+app.use('/projects', consistencyRoutes);
 
 // Manejador de errores centralizado
 app.use((err, req, res, _next) => {
