@@ -7,11 +7,14 @@ async function getConsistencyCheckController(req, res) {
 }
 
 /**
- * T-031.3 - Punto de entrada que representaria el disparador de la
- * generacion final de documentacion (la generacion en si es una etapa
- * futura, no implementada todavia): su unico rol hoy es exponer el
- * bloqueo 409 cuando hay inconsistencias, para que US-033/US-034 lo
- * puedan ejercitar de punta a punta.
+ * T-031.3 - Chequeo previo a la generacion final: su unico rol es exponer el
+ * bloqueo 409 cuando hay inconsistencias entre etapas.
+ *
+ * La generacion de los documentos en si vive en el modulo documents
+ * (US-035/US-036), que valida la precondicion completa (etapas + bloqueos +
+ * consistencia) via la revision consolidada de US-032. Este endpoint se
+ * mantiene como gate de consistencia aislado, que es lo que ejercitan
+ * US-033 y la suite E2E de US-034.
  */
 async function postFinalGenerationController(req, res) {
   try {
