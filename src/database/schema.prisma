@@ -343,3 +343,21 @@ model GeneratedDocument {
   @@index([projectId, kind])
   @@map("generated_documents")
 }
+
+// ------------------------------------------------------------
+// RevokedToken (US-042) — denylist de tokens invalidados por logout.
+//
+// A proposito es una denylist y no una allowlist: el camino feliz (token
+// emitido, nunca deslogueado) no toca esta tabla; solo los jti de un logout
+// explicito quedan registrados, hasta que el propio token expiraria de
+// todas formas. `expiresAt` replica la expiracion del JWT para poder podar
+// filas vencidas sin tener que decodificar el token de nuevo.
+// ------------------------------------------------------------
+model RevokedToken {
+  jti       String   @id
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([expiresAt])
+  @@map("revoked_tokens")
+}

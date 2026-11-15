@@ -39,6 +39,19 @@ describe('generateSessionToken', () => {
     expect(decoded.exp - decoded.iat).toBe(60 * 60);
   });
 
+  test('incluye un jti unico por token (T-042.3: hace falta para invalidar una sesion puntual en logout)', () => {
+    const user = { id: 'user-123', email: 'persona@example.com' };
+
+    const tokenA = generateSessionToken(user);
+    const tokenB = generateSessionToken(user);
+
+    const decodedA = jwt.verify(tokenA, 'test-secret');
+    const decodedB = jwt.verify(tokenB, 'test-secret');
+
+    expect(decodedA.jti).toBeTruthy();
+    expect(decodedA.jti).not.toBe(decodedB.jti);
+  });
+
   test('produce el mismo tipo de token sin importar el origen del usuario (local o SSO)', () => {
     const localUser = { id: 'local-1', email: 'local@example.com' };
     const ssoUser = { id: 'sso-1', email: 'sso@example.com' };
