@@ -44,14 +44,14 @@ function formatLine(level, message, meta = {}, now = new Date()) {
 // llenarian la salida y taparian los resultados.
 const enabled = env.nodeEnv !== 'test';
 
+// Se escribe directo al stream y no via console: un logger necesita stdout
+// para los niveles informativos, y console.log esta vedado por el linter
+// justamente para que no se use como mecanismo de log.
 function emit(level, message, meta) {
   if (!enabled) return;
-  const line = formatLine(level, message, meta);
-  if (level === 'error') {
-    console.error(line);
-  } else {
-    console.log(line);
-  }
+  const line = `${formatLine(level, message, meta)}\n`;
+  const stream = level === 'error' ? process.stderr : process.stdout;
+  stream.write(line);
 }
 
 const logger = {
