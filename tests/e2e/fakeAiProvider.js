@@ -18,6 +18,10 @@ function detectTask(systemPrompt) {
   if (systemPrompt.includes('usuarios objetivo, los resultados esperados')) return 'TARGET_USERS_SCOPE';
   if (systemPrompt.includes('proponer un modelo de base de datos relacional')) return 'DATA_MODEL';
   if (systemPrompt.includes('especificacion de la API REST')) return 'API_SPEC';
+  // T-040.1: se agregan SCREENS y ARCHITECTURE para que la suite E2E de
+  // cierre (US-040) pueda recorrer el flujo completo hasta los documentos.
+  if (systemPrompt.includes('proponer el mapa de pantallas')) return 'SCREENS';
+  if (systemPrompt.includes('catalogo FIJO de escenarios de arquitectura')) return 'ARCHITECTURE';
   throw new Error('fakeAiProvider: no se pudo identificar la tarea a partir del system prompt');
 }
 
@@ -102,6 +106,41 @@ const RESPONSES = {
         ],
       },
     ],
+  }),
+  // Las palabras clave de las pantallas tienen que cubrir "Priorizacion
+  // automatica de tickets" (mvpScope.in) y ninguna puede mencionar "Reportes
+  // avanzados" (mvpScope.out), o la revision final (US-032) nunca llegaria a
+  // readyToGenerate: true.
+  SCREENS: () => ({
+    screens: [
+      {
+        name: 'Cola de tickets',
+        purpose: 'Permite priorizar automaticamente los tickets entrantes',
+        mainElements: ['Lista de tickets', 'Boton priorizar'],
+        visibleToRoles: ['owner', 'editor'],
+      },
+      {
+        name: 'Detalle de ticket',
+        purpose: 'Muestra el detalle de un ticket y el agente asignado',
+        mainElements: ['Datos del ticket', 'Agente asignado'],
+        visibleToRoles: ['owner', 'editor', 'viewer'],
+      },
+      {
+        name: 'Listado de agentes',
+        purpose: 'Lista los agentes disponibles para asignacion',
+        mainElements: ['Lista de agentes'],
+        visibleToRoles: ['owner'],
+      },
+    ],
+    navigation: [
+      { from: 'Cola de tickets', to: 'Detalle de ticket', label: 'Ver detalle del ticket' },
+      { from: 'Detalle de ticket', to: 'Listado de agentes', label: 'Ver agentes disponibles' },
+    ],
+  }),
+  ARCHITECTURE: () => ({
+    recommendedId: 'monolito-modular',
+    justification:
+      'El dominio es chico (Ticket, Agent) y la API tiene pocos endpoints: un monolito modular alcanza sin la complejidad operativa de microservicios o serverless.',
   }),
 };
 
