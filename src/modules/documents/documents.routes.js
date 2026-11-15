@@ -5,6 +5,8 @@ const {
   listDocumentsController,
   getDocumentController,
   generateSpecDocumentController,
+  generateArchitectureDocumentController,
+  downloadBundleController,
 } = require('./documents.controller');
 
 const router = Router();
@@ -15,8 +17,13 @@ router.use(requireAuth);
 // (data-model, api-spec, screens): cualquier miembro puede ver el estado y
 // disparar la generacion; generar no destruye nada, crea una version nueva.
 router.post('/:projectId/documents/spec', requireProjectMembership, generateSpecDocumentController);
+router.post('/:projectId/documents/architecture', requireProjectMembership, generateArchitectureDocumentController);
 
 router.get('/:projectId/documents', requireProjectMembership, listDocumentsController);
+
+// `bundle` va antes de `:documentId`: si no, la ruta parametrica lo capturaria
+// como si fuera el id de un documento.
+router.get('/:projectId/documents/bundle', requireProjectMembership, downloadBundleController);
 router.get('/:projectId/documents/:documentId', requireProjectMembership, getDocumentController);
 
 module.exports = router;

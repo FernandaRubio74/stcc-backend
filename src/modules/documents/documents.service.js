@@ -22,9 +22,16 @@ const screensService = require('../screens/screens.service');
 const architectureService = require('../architecture/architecture.service');
 const { ARCHITECTURE_CATALOG } = require('../architecture/catalog');
 const { buildSpecDocument } = require('./spec.template');
-const { ProjectNotReadyError, DocumentNotFoundError } = require('./documents.errors');
+const { buildArchitectureDocument } = require('./architecture.template');
+const { ProjectNotReadyError, DocumentNotFoundError, MissingDocumentsError } = require('./documents.errors');
 
 const SPEC = 'SPEC';
+const ARCHITECTURE = 'ARCHITECTURE';
+
+const BUNDLE_FILENAMES = {
+  [SPEC]: 'especificacion.md',
+  [ARCHITECTURE]: 'arquitectura.md',
+};
 
 const LIST_FIELDS = {
   id: true,
@@ -90,25 +97,74 @@ async function nextVersionNumber(prismaClient, projectId, kind) {
   return (latest?.versionNumber ?? 0) + 1;
 }
 
-/** T-035.1/T-035.2 - Genera (versiona) el documento de especificacion del producto. */
-async function generateSpecDocument(projectId, userId, deps = {}) {
+/**
+ * Camino comun de los dos documentos: precondicion, contexto, numero de
+ * version y persistencia. Lo unico que cambia es la plantilla.
+ */
+async function generateDocument(kind, buildTemplate, projectId, userId, deps = {}) {
   const prismaClient = deps.prisma || defaultPrisma;
 
   await assertReadyOrThrow(projectId, deps);
 
   const context = await loadProjectContext(projectId, prismaClient, deps);
-  const versionNumber = await nextVersionNumber(prismaClient, projectId, SPEC);
-  const content = buildSpecDocument({
+  const versionNumber = await nextVersionNumber(prismaClient, projectId, kind);
+  const content = buildTemplate({
     ...context,
     versionNumber,
     generatedAt: deps.now ? deps.now() : new Date(),
   });
 
   const created = await prismaClient.generatedDocument.create({
-    data: { projectId, kind: SPEC, versionNumber, content, createdById: userId },
+    data: { projectId, kind, versionNumber, content, createdById: userId },
   });
 
   return serializeDocument(created);
+}
+
+/** T-035.1/T-035.2 - Genera (versiona) el documento de especificacion del producto. */
+function generateSpecDocument(projectId, userId, deps = {}) {
+  return generateDocument(SPEC, buildSpecDocument, projectId, userId, deps);
+}
+
+/** T-036.1/T-036.2 - Genera (versiona) el documento de arquitectura definitiva. */
+function generateArchitectureDocument(projectId, userId, deps = {}) {
+  return generateDocument(ARCHITECTURE, buildArchitectureDocument, projectId, userId, deps);
+}
+
+/**
+ * T-036.3 - Ultima version de cada documento, para la descarga conjunta. Si
+ * falta alguno de los dos no se entrega un zip incompleto: es un 409 con el
+ * detalle de que hay que generar.
+ */
+async function getBundleDocuments(projectId, deps = {}) {
+  const prismaClient = deps.prisma || defaultPrisma;
+
+  const [spec, architecture] = await Promise.all(
+    [SPEC, ARCHITECTURE].map((kind) =>
+      prismaClient.generatedDocument.findFirst({
+        where: { projectId, kind },
+        orderBy: { versionNumber: 'desc' },
+      })
+    )
+  );
+
+  const faltantes = [
+    spec ? null : 'especificacion del producto',
+    architecture ? null : 'arquitectura definitiva',
+  ].filter(Boolean);
+
+  if (faltantes.length > 0) {
+    throw new MissingDocumentsError(
+      `Faltan documentos por generar antes de la descarga conjunta: ${faltantes.join(', ')}`
+    );
+  }
+
+  return [spec, architecture].map((document) => ({
+    filename: BUNDLE_FILENAMES[document.kind],
+    content: document.content,
+    kind: document.kind,
+    versionNumber: document.versionNumber,
+  }));
 }
 
 /** Historial de versiones generadas (sin el contenido: lo pide US-037 por separado). */
@@ -138,4 +194,11 @@ async function getDocument(projectId, documentId, deps = {}) {
   return serializeDocument(document);
 }
 
-module.exports = { generateSpecDocument, listDocuments, getDocument, assertReadyOrThrow };
+module.exports = {
+  generateSpecDocument,
+  generateArchitectureDocument,
+  getBundleDocuments,
+  listDocuments,
+  getDocument,
+  assertReadyOrThrow,
+};

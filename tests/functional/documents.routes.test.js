@@ -191,6 +191,108 @@ describe('GET /projects/:projectId/documents', () => {
   });
 });
 
+describe('POST /projects/:projectId/documents/architecture', () => {
+  test('responde 201 con el documento de arquitectura si el proyecto esta listo', async () => {
+    const owner = await crearUsuario('owner-arq1@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+    await completarTodasLasEtapas(project.id, owner.id);
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/documents/architecture`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`);
+
+    expect(res.status).toBe(201);
+    expect(res.body.kind).toBe('ARCHITECTURE');
+    expect(res.body.versionNumber).toBe(1);
+    expect(res.body.content).toContain('# Arquitectura definitiva');
+    // Coherente con la arquitectura confirmada en el fixture.
+    expect(res.body.content).toContain('monolito-modular');
+  });
+
+  test('responde 409 si el proyecto no esta listo', async () => {
+    const owner = await crearUsuario('owner-arq2@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/documents/architecture`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.blockers).toHaveProperty('stages');
+  });
+
+  test('versiona de forma independiente de la especificacion', async () => {
+    const owner = await crearUsuario('owner-arq3@ideator.com');
+    const token = tokenDe(owner.id);
+    const project = await crearProyecto(token);
+    await completarTodasLasEtapas(project.id, owner.id);
+
+    await request(app).post(`/projects/${project.id}/documents/spec`).set('Authorization', `Bearer ${token}`);
+    await request(app).post(`/projects/${project.id}/documents/spec`).set('Authorization', `Bearer ${token}`);
+    const arquitectura = await request(app)
+      .post(`/projects/${project.id}/documents/architecture`)
+      .set('Authorization', `Bearer ${token}`);
+
+    // La spec va en v2 y la arquitectura arranca en v1: los contadores no se mezclan.
+    expect(arquitectura.body.versionNumber).toBe(1);
+  });
+});
+
+describe('GET /projects/:projectId/documents/bundle', () => {
+  test('responde 409 si todavia falta generar alguno de los dos documentos', async () => {
+    const owner = await crearUsuario('owner-zip1@ideator.com');
+    const token = tokenDe(owner.id);
+    const project = await crearProyecto(token);
+    await completarTodasLasEtapas(project.id, owner.id);
+    await request(app).post(`/projects/${project.id}/documents/spec`).set('Authorization', `Bearer ${token}`);
+
+    const res = await request(app)
+      .get(`/projects/${project.id}/documents/bundle`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('arquitectura definitiva');
+  });
+
+  test('devuelve un zip con los dos documentos', async () => {
+    const owner = await crearUsuario('owner-zip2@ideator.com');
+    const token = tokenDe(owner.id);
+    const project = await crearProyecto(token);
+    await completarTodasLasEtapas(project.id, owner.id);
+    await request(app).post(`/projects/${project.id}/documents/spec`).set('Authorization', `Bearer ${token}`);
+    await request(app).post(`/projects/${project.id}/documents/architecture`).set('Authorization', `Bearer ${token}`);
+
+    const res = await request(app)
+      .get(`/projects/${project.id}/documents/bundle`)
+      .set('Authorization', `Bearer ${token}`)
+      .responseType('blob');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/zip');
+    expect(res.headers['content-disposition']).toContain('ideator-documentos.zip');
+    expect(Buffer.isBuffer(res.body)).toBe(true);
+    // Firma de un archivo ZIP.
+    expect(res.body.slice(0, 2).toString()).toBe('PK');
+    // En un zip los nombres de archivo van sin comprimir en la cabecera local,
+    // asi que se pueden verificar sobre el buffer sin necesidad de descomprimir.
+    const raw = res.body.toString('latin1');
+    expect(raw).toContain('especificacion.md');
+    expect(raw).toContain('arquitectura.md');
+  });
+
+  test('un usuario ajeno recibe 404', async () => {
+    const owner = await crearUsuario('owner-zip3@ideator.com');
+    const ajeno = await crearUsuario('ajeno-zip3@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+
+    const res = await request(app)
+      .get(`/projects/${project.id}/documents/bundle`)
+      .set('Authorization', `Bearer ${tokenDe(ajeno.id)}`);
+
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('GET /projects/:projectId/documents/:documentId', () => {
   test('devuelve el contenido de la version solicitada', async () => {
     const owner = await crearUsuario('owner-doc7@ideator.com');
