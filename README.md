@@ -40,6 +40,41 @@ npm run dev                # levanta el servidor en modo desarrollo
 
 El servidor queda disponible en `http://localhost:3000`.
 
+## Levantar el entorno completo desde cero (Docker)
+
+Levanta base de datos, backend y frontend con un solo comando (US-038).
+
+**Requisito**: los dos repositorios tienen que estar como carpetas hermanas, porque el
+compose construye el frontend desde `../stcc-frontend`:
+
+```
+Ideator/
+├── stcc-backend/     <- se corre el compose desde acá
+└── stcc-frontend/
+```
+
+```bash
+cd stcc-backend
+cp .env.example .env                                  # completar JWT_SECRET y credenciales de IA
+docker compose up --build -d                          # db + backend + frontend
+docker compose run --rm backend npm run migrate       # migraciones (paso explícito)
+```
+
+| Servicio | URL | Notas |
+|---|---|---|
+| Frontend | http://localhost:5173 | build de Vite servido por nginx |
+| Backend | http://localhost:3000 | `GET /health` para verificar |
+| PostgreSQL | localhost:5433 | puerto 5433 para no chocar con un Postgres nativo |
+
+Las migraciones **no** se ejecutan al arrancar el contenedor a propósito: son un paso
+explícito del despliegue, para que un reinicio no aplique cambios de schema por sorpresa.
+
+```bash
+docker compose logs -f backend    # seguir logs
+docker compose down               # bajar todo (conserva los datos)
+docker compose down -v            # bajar y borrar el volumen de la base
+```
+
 ## Variables de entorno
 
 | Variable | Descripción | Ejemplo |
@@ -52,9 +87,16 @@ El servidor queda disponible en `http://localhost:3000`.
 | `SSO_CLIENT_SECRET` | Client Secret del proveedor OAuth2/OIDC | — |
 | `SSO_CALLBACK_URL` | URL de callback del flujo SSO | `http://localhost:3000/auth/sso/callback` |
 | `AI_PROVIDER_API_KEY` | Credencial del proveedor de IA (motor conversacional) | — |
+| `AI_ENDPOINT` | Endpoint del proveedor de IA (superficie compatible con OpenAI v1) | — |
+| `AI_DEPLOYMENT` | Nombre del deployment/modelo a usar | `gpt-5` |
+| `AI_TIMEOUT_MS` | Timeout por llamada a la IA | `90000` |
+| `AI_MAX_RETRIES` | Reintentos ante fallas transitorias | `1` |
+| `FRONTEND_URL` | Origen permitido por CORS | `http://localhost:5173` |
 | `NODE_ENV` | Entorno de ejecución | `development` |
 
 Nunca commitear el archivo `.env`. Usar siempre `.env.example` como plantilla sin valores reales.
+`tests/unit/env-example.test.js` falla si el código lee una variable que no está documentada
+en `.env.example`, o si alguna clave sensible trae un valor en el ejemplo.
 
 ## Scripts disponibles
 
