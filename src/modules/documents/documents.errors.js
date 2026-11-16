@@ -10,4 +10,7 @@ class ProjectNotReadyError extends Error {
 
 class DocumentNotFoundError extends Error {}
 
-module.exports = { ProjectNotReadyError, DocumentNotFoundError };
+/** T-036.3 - Falta generar alguno de los dos documentos de la descarga conjunta. */
+class MissingDocumentsError extends Error {}
+
+module.exports = { ProjectNotReadyError, DocumentNotFoundError, MissingDocumentsError };
