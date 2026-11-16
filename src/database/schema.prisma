@@ -52,6 +52,14 @@ enum ApiSpecVersionStatus {
   APPROVED
 }
 
+// US-035/US-036: los dos documentos Markdown finales que entrega Ideator.
+// El tipo distingue cual de los dos es, y el versionado es independiente
+// por tipo (ver GeneratedDocument).
+enum GeneratedDocumentKind {
+  SPEC
+  ARCHITECTURE
+}
+
 // ------------------------------------------------------------
 // User
 // ------------------------------------------------------------
@@ -85,6 +93,7 @@ model User {
   approvedApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionApprover")
   authoredScreenMaps      ScreenMap[]       @relation("ScreenMapAuthor")
   selectedArchitectures   ProjectArchitecture[] @relation("ProjectArchitectureSelector")
+  authoredDocuments       GeneratedDocument[]   @relation("GeneratedDocumentAuthor")
 
   // Evita que dos usuarios locales/SSO compartan la misma identidad externa
   @@unique([authProvider, providerId], map: "uq_user_provider")
@@ -116,6 +125,7 @@ model Project {
   apiSpecVersions    ApiSpecVersion[]
   screenMap          ScreenMap?
   architecture       ProjectArchitecture?
+  generatedDocuments GeneratedDocument[]
 
   @@map("projects")
 }
@@ -306,4 +316,30 @@ model ProjectArchitecture {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("project_architectures")
+}
+
+// ------------------------------------------------------------
+// GeneratedDocument (US-035/US-036) — documentos Markdown finales
+// generados de forma deterministica a partir del estado ya aprobado de
+// cada etapa (la IA no participa de la generacion). Se guarda el
+// contenido completo como snapshot y se versiona de forma independiente
+// por tipo de documento, porque el DoD de US-037 pide poder consultar el
+// historial de versiones generadas: regenerar no sobreescribe, crea una
+// version nueva.
+// ------------------------------------------------------------
+model GeneratedDocument {
+  id            String                @id @default(uuid()) @db.Uuid
+  projectId     String                @map("project_id") @db.Uuid
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  kind          GeneratedDocumentKind
+  versionNumber Int                   @map("version_number")
+  content       String
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("GeneratedDocumentAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, kind, versionNumber], map: "uq_generated_document_version")
+  @@index([projectId, kind])
+  @@map("generated_documents")
 }
