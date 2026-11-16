@@ -13,15 +13,19 @@ const architectureRoutes = require('./modules/architecture/architecture.routes')
 const consistencyRoutes = require('./modules/consistency/consistency.routes');
 const reviewRoutes = require('./modules/review/review.routes');
 const documentsRoutes = require('./modules/documents/documents.routes');
+const healthRoutes = require('./modules/health/health.routes');
+const { requestLogger } = require('./common/middlewares/request-logger.middleware');
+const { logger } = require('./common/utils/logger');
 
 const app = express();
 
 app.use(cors({ origin: env.frontendUrl }));
 app.use(express.json());
 
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
-});
+// US-039: va antes de las rutas para medir y loguear todo, /health incluido.
+app.use(requestLogger);
+
+app.use(healthRoutes);
 
 app.use('/auth', authRoutes);
 app.use('/auth', ssoRoutes);
@@ -38,7 +42,14 @@ app.use('/projects', documentsRoutes);
 
 // Manejador de errores centralizado
 app.use((err, req, res, _next) => {
-  console.error(err);
+  logger.error('unhandled_error', {
+    requestId: req.requestId,
+    method: req.method,
+    path: req.originalUrl || req.url,
+    name: err?.name,
+    message: err?.message,
+    stack: err?.stack,
+  });
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
