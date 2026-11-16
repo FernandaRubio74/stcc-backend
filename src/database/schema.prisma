@@ -36,6 +36,22 @@ enum DefinitionMessageRole {
   assistant
 }
 
+// EPIC-05, US-021: una version es DRAFT mientras se edita colaborativamente
+// y pasa a APPROVED (inmutable) cuando el owner la aprueba. Nunca se
+// sobreescribe una version aprobada: una edicion posterior crea una nueva
+// version DRAFT.
+enum DataModelVersionStatus {
+  DRAFT
+  APPROVED
+}
+
+// EPIC-06, US-024: mismo ciclo de vida que DataModelVersionStatus (DRAFT
+// editable, APPROVED inmutable) aplicado a la especificacion de API.
+enum ApiSpecVersionStatus {
+  DRAFT
+  APPROVED
+}
+
 // ------------------------------------------------------------
 // User
 // ------------------------------------------------------------
@@ -59,10 +75,16 @@ model User {
   createdUsers User[]  @relation("UserCreatedBy")
 
   // --- Relaciones inversas ---
-  ownedProjects      Project[]           @relation("ProjectCreatedBy")
-  memberships        ProjectMember[]     @relation("MemberUser")
-  addedMemberships   ProjectMember[]     @relation("MemberCreatedBy")
-  definitionMessages DefinitionMessage[] @relation("DefinitionMessageAuthor")
+  ownedProjects         Project[]           @relation("ProjectCreatedBy")
+  memberships           ProjectMember[]     @relation("MemberUser")
+  addedMemberships      ProjectMember[]     @relation("MemberCreatedBy")
+  definitionMessages    DefinitionMessage[] @relation("DefinitionMessageAuthor")
+  authoredModelVersions DataModelVersion[]  @relation("DataModelVersionAuthor")
+  approvedModelVersions DataModelVersion[]  @relation("DataModelVersionApprover")
+  authoredApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionAuthor")
+  approvedApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionApprover")
+  authoredScreenMaps      ScreenMap[]       @relation("ScreenMapAuthor")
+  selectedArchitectures   ProjectArchitecture[] @relation("ProjectArchitectureSelector")
 
   // Evita que dos usuarios locales/SSO compartan la misma identidad externa
   @@unique([authProvider, providerId], map: "uq_user_provider")
@@ -90,6 +112,10 @@ model Project {
   definition         ProjectDefinition?
   definitionMessages DefinitionMessage[]
   blockingQuestions  BlockingQuestion[]
+  dataModelVersions  DataModelVersion[]
+  apiSpecVersions    ApiSpecVersion[]
+  screenMap          ScreenMap?
+  architecture       ProjectArchitecture?
 
   @@map("projects")
 }
@@ -178,4 +204,106 @@ model BlockingQuestion {
 
   @@index([projectId, stage, resolvedAt])
   @@map("blocking_questions")
+}
+
+// ------------------------------------------------------------
+// DataModelVersion (US-019/US-020/US-021) — entidades propuestas (por la
+// IA o editadas a mano) para el modelo fisico de base de datos. `entities`
+// y el diagrama Mermaid derivado se guardan como snapshot completo por
+// version: una vez APPROVED, la fila es inmutable (ver enum) y cualquier
+// edicion posterior crea una version DRAFT nueva.
+// ------------------------------------------------------------
+model DataModelVersion {
+  id            String                 @id @default(uuid()) @db.Uuid
+  projectId     String                 @map("project_id") @db.Uuid
+  project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                    @map("version_number")
+  status        DataModelVersionStatus @default(DRAFT)
+  entities      Json
+  diagram       String?
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("DataModelVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("DataModelVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_data_model_version")
+  @@index([projectId, status])
+  @@map("data_model_versions")
+}
+
+// ------------------------------------------------------------
+// ApiSpecVersion (US-023/US-024) — endpoints propuestos (por la IA o
+// editados a mano) para la especificacion de la API. Mismo esquema de
+// versionado que DataModelVersion: snapshot completo por version, DRAFT
+// editable in-place, APPROVED inmutable.
+// ------------------------------------------------------------
+model ApiSpecVersion {
+  id            String               @id @default(uuid()) @db.Uuid
+  projectId     String               @map("project_id") @db.Uuid
+  project       Project              @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                  @map("version_number")
+  status        ApiSpecVersionStatus @default(DRAFT)
+  endpoints     Json
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("ApiSpecVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("ApiSpecVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_api_spec_version")
+  @@index([projectId, status])
+  @@map("api_spec_versions")
+}
+
+// ------------------------------------------------------------
+// ScreenMap (US-027) — mapa de pantallas, navegacion y mockups de baja
+// fidelidad. A diferencia de DataModelVersion/ApiSpecVersion, el DoD no
+// pide versionado DRAFT/APPROVED para esta etapa: es una fila 1:1 por
+// proyecto que se sobreescribe al regenerar (mismo patron que
+// ProjectDefinition).
+// ------------------------------------------------------------
+model ScreenMap {
+  projectId  String  @id @map("project_id") @db.Uuid
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  screens    Json
+  navigation Json
+  diagram    String
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("ScreenMapAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@map("screen_maps")
+}
+
+// ------------------------------------------------------------
+// ProjectArchitecture (US-028) — recomendacion de la IA (de un catalogo
+// fijo en codigo, ver architecture/catalog.js) y la seleccion final del
+// usuario (que puede coincidir con la recomendacion o ser una eleccion
+// explicita de otra opcion del catalogo). 1:1 por proyecto: no hay
+// historial, la ultima recomendacion/seleccion es la vigente.
+// ------------------------------------------------------------
+model ProjectArchitecture {
+  projectId     String    @id @map("project_id") @db.Uuid
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  recommendedId String?   @map("recommended_id")
+  justification String?
+  selectedId    String?   @map("selected_id")
+  selectedAt    DateTime? @map("selected_at") @db.Timestamptz
+
+  selectedById String? @map("selected_by") @db.Uuid
+  selectedBy   User?   @relation("ProjectArchitectureSelector", fields: [selectedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("project_architectures")
 }

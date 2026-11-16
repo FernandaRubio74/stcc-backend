@@ -32,9 +32,12 @@ module.exports = {
     apiKey: process.env.AI_PROVIDER_API_KEY,
     deployment: process.env.AI_DEPLOYMENT,
     // gpt-5 es un modelo de razonamiento: una respuesta real (con historial
-    // de conversacion) tardo ~22s en pruebas manuales contra Azure. 15s se
-    // quedaba corto y disparaba timeouts espurios.
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 45000,
+    // de conversacion) tardo ~22s en pruebas manuales contra Azure, pero las
+    // tareas de un solo turno que generan un artefacto completo (modelo de
+    // datos, spec de API con CRUD + 401/403/404 para cada entidad, etc.)
+    // tardaron hasta ~50s en pruebas manuales reales — 45s se quedaba corto
+    // y disparaba timeouts espurios en esas tareas.
+    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 90000,
     maxRetries: Number(process.env.AI_MAX_RETRIES) || 1,
   },
 };

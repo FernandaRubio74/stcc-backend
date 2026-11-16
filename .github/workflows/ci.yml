@@ -88,6 +88,13 @@ jobs:
       JWT_EXPIRES_IN: 1d
       PORT: 3000
       BASE_URL: http://localhost:3000
+      # T-026.1/T-026.3: la IA se reemplaza por un doble determinista a nivel
+      # de proveedor (tests/e2e/fakeAiProvider.js), no por un mock de modulo
+      # (el servidor real corre en otro proceso en este job). El gate de
+      # merge corre siempre con este doble, nunca contra la IA real.
+      AI_ENDPOINT: http://localhost:4010/openai/v1
+      AI_PROVIDER_API_KEY: ci-fake-key
+      AI_DEPLOYMENT: ci-fake-deployment
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -107,6 +114,9 @@ jobs:
       - name: Run migrations
         run: npm run migrate
 
+      - name: Start fake AI provider in background
+        run: nohup node tests/e2e/fakeAiProvider.js > fake-ai.log 2>&1 &
+
       - name: Start server in background
         run: nohup node src/server.js > server.log 2>&1 &
 
@@ -119,3 +129,7 @@ jobs:
       - name: Show server logs if E2E failed
         if: failure()
         run: cat server.log
+
+      - name: Show fake AI provider logs if E2E failed
+        if: failure()
+        run: cat fake-ai.log
