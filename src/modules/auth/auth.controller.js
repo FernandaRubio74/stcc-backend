@@ -24,4 +24,9 @@ async function loginController(req, res) {
   }
 }
 
-module.exports = { registerController, loginController };
+async function logoutController(req, res) {
+  await authService.logout(req.tokenPayload || {});
+  return res.status(204).send();
+}
+
+module.exports = { registerController, loginController, logoutController };

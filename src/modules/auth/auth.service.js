@@ -1,6 +1,7 @@
 ﻿const bcrypt = require('bcryptjs');
 const { PrismaClient } = require('@prisma/client');
 const { generateSessionToken } = require('./token.service');
+const revocationService = require('./revocation.service');
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10;
@@ -41,9 +42,16 @@ async function login({ email, password }) {
   return { token, user: { id: user.id, email: user.email, fullName: user.fullName } };
 }
 
+/** T-042.3 - Invalida la sesion actual (y solo esa) insertandola en la denylist. */
+async function logout({ jti, exp }) {
+  if (!jti) return;
+  await revocationService.revoke({ jti, expiresAt: new Date(exp * 1000) });
+}
+
 module.exports = {
   register,
   login,
+  logout,
   EmailAlreadyExistsError,
   InvalidCredentialsError,
   prisma,
