@@ -25,5 +25,13 @@ module.exports = [
       'prefer-const': 'error',
     },
   },
+  {
+    // Herramientas de linea de comandos: su salida ES el resultado, no un
+    // console.log olvidado en codigo de produccion.
+    files: ['scripts/**/*.js'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
   prettier,
 ];
