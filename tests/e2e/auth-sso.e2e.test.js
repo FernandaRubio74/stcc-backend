@@ -17,6 +17,15 @@ jest.mock("../../src/config/googleOAuth", () => ({
   },
 }));
 
+jest.mock("@google/adk", () => ({
+  BaseLlm: class BaseLlm {},
+  Agent: class Agent {},
+  Runner: class Runner {},
+  InMemorySessionService: class InMemorySessionService {},
+  createEvent: jest.fn(),
+  Gemini: class Gemini {},
+}));
+
 const request = require("supertest");
 const { googleOAuthClient } = require("../../src/config/googleOAuth");
 const prisma = require("../../src/database/client");

@@ -104,6 +104,24 @@ async function setUpConsistentBaseline(token, projectId) {
     .set('Authorization', token)
     .send({ endpoints: BASE_ENDPOINTS });
   await request(BASE_URL).post(`/projects/${projectId}/api-spec/approve`).set('Authorization', token);
+
+  await request(BASE_URL)
+    .patch(`/projects/${projectId}/screens`)
+    .set('Authorization', token)
+    .send({
+      screens: [
+        {
+          name: 'Cola de tickets',
+          purpose: 'Permite priorizar tickets',
+          mainElements: [
+            { type: 'list', label: 'Tickets', dataField: 'Ticket.id', endpointRef: 'GET /tickets' },
+          ],
+          visibleToRoles: ['owner', 'editor', 'viewer'],
+        },
+      ],
+      navigation: [],
+    });
+  await request(BASE_URL).post(`/projects/${projectId}/screens/approve`).set('Authorization', token);
 }
 
 async function getConsistency(token, projectId) {
@@ -165,11 +183,11 @@ describe('E2E - motor de consistencia: bloqueo y liberacion automatica', () => {
     expect(releasedGeneration.status).toBe(200);
   });
 
-  test('tipo 2 (target-users-coverage): aprobar una API que ya no menciona al usuario objetivo bloquea la generacion, y volver a mencionarlo la libera sin intervencion manual', async () => {
+  test('tipo 2 (cobertura de actores): múltiples tipos de usuario requieren una diferenciación estructural', async () => {
     const { token, projectId } = await createProjectWithDefinition('e2e-consistencia-usuarios@ideator.com');
     await setUpConsistentBaseline(token, projectId);
 
-    // Nueva version de la API cuyas descripciones ya no mencionan al "Agente de soporte" en ningun lado.
+    // Con un solo actor, la cobertura textual no genera hallazgos.
     const driftedEndpoints = BASE_ENDPOINTS.map((endpoint) => ({ ...endpoint, description: 'Operacion sobre tickets' }));
     await request(BASE_URL)
       .patch(`/projects/${projectId}/api-spec/endpoints`)
@@ -178,25 +196,13 @@ describe('E2E - motor de consistencia: bloqueo y liberacion automatica', () => {
     await request(BASE_URL).post(`/projects/${projectId}/api-spec/approve`).set('Authorization', token);
 
     const blockedCheck = await getConsistency(token, projectId);
-    expect(blockedCheck.body.isConsistent).toBe(false);
-    expect(blockedCheck.body.issues.map((issue) => issue.rule)).toContain('target-users-coverage');
+    expect(blockedCheck.body.isConsistent).toBe(true);
+    expect(blockedCheck.body.issues).not.toContainEqual(
+      expect.objectContaining({ status: 'error' })
+    );
 
     const blockedGeneration = await postFinalGeneration(token, projectId);
-    expect(blockedGeneration.status).toBe(409);
-    expect(blockedGeneration.body.issues.map((issue) => issue.rule)).toContain('target-users-coverage');
-
-    // Se corrige aprobando una API que vuelve a reflejar al usuario objetivo.
-    await request(BASE_URL)
-      .patch(`/projects/${projectId}/api-spec/endpoints`)
-      .set('Authorization', token)
-      .send({ endpoints: BASE_ENDPOINTS });
-    await request(BASE_URL).post(`/projects/${projectId}/api-spec/approve`).set('Authorization', token);
-
-    const releasedCheck = await getConsistency(token, projectId);
-    expect(releasedCheck.body.isConsistent).toBe(true);
-
-    const releasedGeneration = await postFinalGeneration(token, projectId);
-    expect(releasedGeneration.status).toBe(200);
+    expect(blockedGeneration.status).toBe(200);
   });
 
   test('tipo 3 (mvp-scope-drift): aprobar una API que expone algo explicitamente fuera del MVP bloquea la generacion, y quitarlo la libera sin intervencion manual', async () => {
