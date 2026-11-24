@@ -48,6 +48,24 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Generate test RSA key pair
+        run: |
+          node <<'NODE'
+          const { generateKeyPairSync } = require('crypto');
+          const fs = require('fs');
+
+          const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+          });
+
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `JWT_RSA_PRIVATE_KEY<<EOF\n${privateKey}EOF\nJWT_RSA_PUBLIC_KEY<<EOF\n${publicKey}EOF\n`
+          );
+          NODE
+
       - name: Install dependencies
         run: npm ci
 
@@ -107,6 +125,24 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
+      - name: Generate test RSA key pair
+        run: |
+          node <<'NODE'
+          const { generateKeyPairSync } = require('crypto');
+          const fs = require('fs');
+
+          const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+          });
+
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `JWT_RSA_PRIVATE_KEY<<EOF\n${privateKey}EOF\nJWT_RSA_PUBLIC_KEY<<EOF\n${publicKey}EOF\n`
+          );
+          NODE
 
       - name: Install dependencies
         run: npm ci
@@ -181,6 +217,24 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
+      - name: Generate test RSA key pair
+        run: |
+          node <<'NODE'
+          const { generateKeyPairSync } = require('crypto');
+          const fs = require('fs');
+
+          const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+          });
+
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `JWT_RSA_PRIVATE_KEY<<EOF\n${privateKey}EOF\nJWT_RSA_PUBLIC_KEY<<EOF\n${publicKey}EOF\n`
+          );
+          NODE
 
       - name: Install dependencies
         run: npm ci
