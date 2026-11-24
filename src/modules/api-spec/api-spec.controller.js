@@ -1,7 +1,7 @@
 const apiSpecService = require('./api-spec.service');
 const { DraftNotFoundError, EndpointEntityMismatchError, NoCurrentContentError } = require('./api-spec.errors');
 const { NoApprovedVersionError } = require('../data-model/data-model.errors');
-const { AiTimeoutError, AiProviderError, AiResponseValidationError } = require('../ai/ai.errors');
+const { AI_UNAVAILABLE_MESSAGE, isAiFailure, logAiFailure } = require('../ai/aiFailure');
 
 async function getApiSpecController(req, res) {
   const state = await apiSpecService.getApiSpecState(req.params.projectId);
@@ -19,10 +19,9 @@ async function generateApiSpecController(req, res) {
     if (err instanceof EndpointEntityMismatchError) {
       return res.status(502).json({ error: err.message });
     }
-    if (err instanceof AiTimeoutError || err instanceof AiProviderError || err instanceof AiResponseValidationError) {
-      return res
-        .status(500)
-        .json({ error: 'El asistente de IA no esta disponible en este momento, intenta de nuevo' });
+    if (isAiFailure(err)) {
+      logAiFailure(err, { stage: 'api-spec', action: 'generate', projectId: req.params.projectId });
+      return res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
     }
     throw err;
   }
@@ -39,10 +38,9 @@ async function refineApiSpecController(req, res) {
     if (err instanceof EndpointEntityMismatchError) {
       return res.status(502).json({ error: err.message });
     }
-    if (err instanceof AiTimeoutError || err instanceof AiProviderError || err instanceof AiResponseValidationError) {
-      return res
-        .status(500)
-        .json({ error: 'El asistente de IA no esta disponible en este momento, intenta de nuevo' });
+    if (isAiFailure(err)) {
+      logAiFailure(err, { stage: 'api-spec', action: 'refine', projectId: req.params.projectId });
+      return res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
     }
     throw err;
   }
