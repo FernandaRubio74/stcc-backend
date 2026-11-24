@@ -1,17 +1,21 @@
 /**
  * T-007.1 - Middleware de autenticacion.
  *
- * Verifica el JWT emitido por `auth.service.login` y deja la identidad del
- * usuario en `req.user`. Es prerequisito de `requireProjectMembership`: sin
- * un `req.user.id` confiable no hay contra quien chequear la membresia.
+ * Verifica el JWE emitido por `auth.service.login` (ver
+ * auth/jwe.service.js: cifrado hibrido RSA+AES, no un JWT firmado - el
+ * payload no es legible sin la clave privada del servidor) y deja la
+ * identidad del usuario en `req.user`. Es prerequisito de
+ * `requireProjectMembership`: sin un `req.user.id` confiable no hay contra
+ * quien chequear la membresia.
  *
- * T-042.3: ademas de la firma y la expiracion, se chequea que el `jti` del
- * token no este en la denylist de logout (revocation.service). La firma y
- * la expiracion por si solas no alcanzan: un token deslogueado sigue
- * teniendo ambas validas hasta su vencimiento natural.
+ * T-042.3: ademas de desencriptarlo (lo que ya exige que el auth tag de
+ * GCM sea valido, osea que no fue alterado) y de la expiracion, se chequea
+ * que el `jti` del token no este en la denylist de logout
+ * (revocation.service). ninguna de esas dos por si solas alcanza: un token
+ * deslogueado sigue siendo descifrable y vigente hasta su vencimiento
+ * natural.
  */
-const jwt = require('jsonwebtoken');
-const env = require('../../config/env');
+const { decryptPayload } = require('../../modules/auth/jwe.service');
 const revocationService = require('../../modules/auth/revocation.service');
 
 const BEARER_PREFIX = /^Bearer (.+)$/i;
@@ -36,7 +40,7 @@ function createRequireAuth({ prisma } = {}) {
 
     let payload;
     try {
-      payload = jwt.verify(match[1], env.jwt.secret);
+      payload = decryptPayload(match[1]);
     } catch {
       // Se responde igual para token invalido, expirado o firmado con otra
       // clave: al cliente no le sirve el detalle y no vale la pena filtrarlo.

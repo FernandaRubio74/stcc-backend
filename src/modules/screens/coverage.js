@@ -1,7 +1,11 @@
 /**
  * T-027.3 - Validacion deterministica de cobertura MVP <-> pantallas:
  * - toda funcionalidad dentro del alcance del MVP (mvpScope.in) tiene al
- *   menos una pantalla cuyo nombre/proposito/elementos la mencionen.
+ *   menos una pantalla cuyo nombre/proposito/elementos la mencionen, O
+ *   esta documentada en el modelo de datos/API aprobados (ver backendText
+ *   mas abajo), O es una funcionalidad de rol/permiso y las pantallas ya
+ *   diferencian de verdad por rol (ver isRoleDifferentiationFeature mas
+ *   abajo): no toda funcionalidad del MVP es una pantalla.
  * - ninguna pantalla menciona una funcionalidad explicitamente fuera del
  *   alcance del MVP (mvpScope.out).
  *
@@ -28,7 +32,11 @@
  * jugador (el jugador reserva como invitado)" solo por compartir las
  * palabras "jugador"/"invitado" de esa frase aclaratoria.
  */
-const { MvpCoverageError } = require('./screens.errors');
+const { RoleCoverageError } = require('./screens.errors');
+
+// Los unicos roles reales del sistema (ProjectRole, ver schema.prisma) -
+// no son un dato del dominio del wizard, son fijos.
+const ALL_PROJECT_ROLES = ['owner', 'editor', 'viewer'];
 
 const STOPWORDS = new Set([
   'para', 'como', 'desde', 'hacia', 'hasta', 'sobre', 'entre', 'pero', 'esta', 'esto', 'este',
@@ -50,7 +58,8 @@ function significantStems(text) {
 }
 
 function screenText(screen) {
-  return [screen.name, screen.purpose, ...screen.mainElements].join(' ').toLowerCase();
+  const elementLabels = (screen.mainElements || []).map((element) => element.label);
+  return [screen.name, screen.purpose, ...elementLabels].join(' ').toLowerCase();
 }
 
 function screenMentionsFeature(screen, feature, { requireAll = false } = {}) {
@@ -64,6 +73,46 @@ function screenMentionsFeature(screen, feature, { requireAll = false } = {}) {
   return requireAll ? matches === keywords.length : matches >= Math.ceil(keywords.length / 2);
 }
 
+/**
+ * Texto del modelo de datos y la API aprobados, para el chequeo de "falta
+ * cobertura" (nunca para el de "fuga de alcance", que se mantiene estricto
+ * y solo contra pantallas). Visto en pruebas manuales reales: no toda
+ * funcionalidad del MVP es una pantalla - una automatizacion de backend
+ * (ej. "Actualizacion automatica de stock" al confirmar una venta) o una
+ * restriccion transversal (ej. "Restriccion de accesos mediante roles de
+ * empleado", que ya se implementa via permisos de la API/visibleToRoles,
+ * no con una pantalla propia) quedan documentadas en el modelo de datos o
+ * en la especificacion de API, no en una pantalla dedicada. Exigir una
+ * pantalla para ese tipo de funcionalidad bloqueaba sin razon.
+ */
+function backendText({ apiSpec, dataModel } = {}) {
+  const apiParts = (apiSpec?.endpoints || []).flatMap((endpoint) => [
+    endpoint.method,
+    endpoint.path,
+    endpoint.description,
+    endpoint.resourceEntity,
+  ]);
+  const dataParts = (dataModel?.entities || []).flatMap((entity) => [
+    entity.name,
+    ...(entity.attributes || []).map((attribute) => attribute.name),
+  ]);
+  return [...apiParts, ...dataParts].filter(Boolean).join(' ').toLowerCase();
+}
+
+function mentionsFeature(text, feature, { requireAll = false } = {}) {
+  const keywords = significantStems(feature);
+  if (keywords.length === 0) {
+    return text.includes(feature.toLowerCase());
+  }
+  const matches = keywords.filter((word) => text.includes(word)).length;
+  return requireAll ? matches === keywords.length : matches >= Math.ceil(keywords.length / 2);
+}
+
+// La lista fija de palabras de rol/permiso que vivia aca (para eximir de
+// "falta pantalla" a funcionalidades de permisos) se elimino: la regla B de
+// la revision transversal prohibe decidir esto con vocabulario fijo en el
+// codigo, y ya no hace falta porque este chequeo dejo de bloquear.
+
 // Visto en pruebas manuales reales: el wizard a veces repite una exclusion
 // dentro de mvpScope.in, redactada como negacion (ej. "Sin pagos online"),
 // aunque el mismo concepto ya este (correctamente, en positivo) en
@@ -75,27 +124,47 @@ function isPositiveFeature(feature) {
   return !NEGATION_PREFIX.test(feature.trim());
 }
 
-function validateMvpCoverage(screens, mvpScope) {
+function findUncoveredMvpFeatures(screens, mvpScope, context = {}) {
   const inFeatures = (mvpScope?.in || []).filter(isPositiveFeature);
-  const outFeatures = mvpScope?.out || [];
+  const backend = backendText(context);
 
-  const uncovered = inFeatures.filter(
-    (feature) => !screens.some((screen) => screenMentionsFeature(screen, feature))
-  );
-  if (uncovered.length > 0) {
-    throw new MvpCoverageError(
-      `Las siguientes funcionalidades del MVP no tienen ninguna pantalla asociada: ${uncovered.join(', ')}`
-    );
-  }
+  // Diagnostico, NO bloqueo (hallazgo H-04 de la revision transversal):
+  // decidir por coincidencia de palabras sobre texto libre si una
+  // funcionalidad "tiene pantalla" produce falsos positivos que bloquean
+  // una generacion correcta - visto con el caso del courier, donde
+  // "Pesaje diferenciado por tipo de contenido" estaba implementado (campos
+  // `peso` y `tipo` + pantalla de pesaje) y ninguna palabra clave llegaba
+  // al umbral dentro de un mismo artefacto. Lo que SI bloquea son las
+  // validaciones estructurales exactas: referencias de datos/endpoints
+  // (coherence.js), cobertura de roles reales y navegacion.
+  //
+  // La fuga de alcance tampoco se evalua aca: la cubre el motor de
+  // consistencia por artefacto individual (regla `mvp-scope-drift`), que es
+  // mas preciso que este blob de texto y no bloquea la generacion de la
+  // etapa sino la generacion final.
+  return inFeatures.filter((feature) => {
+    if (screens.some((screen) => screenMentionsFeature(screen, feature))) return false;
+    if (mentionsFeature(backend, feature)) return false;
+    return true;
+  });
+}
 
-  const leaked = outFeatures.filter((feature) =>
-    screens.some((screen) => screenMentionsFeature(screen, feature, { requireAll: true }))
-  );
-  if (leaked.length > 0) {
-    throw new MvpCoverageError(
-      `Las siguientes pantallas incluyen funcionalidad explicitamente fuera del alcance del MVP: ${leaked.join(', ')}`
+// Pedido explicito: "cada rol del proyecto tiene sus pantallas y no sobran
+// ni faltan" - se interpreta al pie de la letra: el conjunto de roles
+// (owner/editor/viewer) referenciado en "visibleToRoles" de TODAS las
+// pantallas tiene que ser exactamente el conjunto completo. Un valor que
+// no sea uno de los 3 roles reales ya es imposible (lo rechaza el schema
+// de zod antes de llegar aca).
+function validateRoleCoverage(screens) {
+  const covered = new Set();
+  screens.forEach((screen) => (screen.visibleToRoles || []).forEach((role) => covered.add(role)));
+
+  const missing = ALL_PROJECT_ROLES.filter((role) => !covered.has(role));
+  if (missing.length > 0) {
+    throw new RoleCoverageError(
+      `Los siguientes roles no tienen ninguna pantalla visible para ellos: ${missing.join(', ')}`
     );
   }
 }
 
-module.exports = { validateMvpCoverage };
+module.exports = { findUncoveredMvpFeatures, validateRoleCoverage, ALL_PROJECT_ROLES };

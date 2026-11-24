@@ -23,6 +23,7 @@
     "test:e2e": "jest --config jest.e2e.config.js --runInBand"
   },
   "dependencies": {
+    "@google/adk": "^2.5.0",
     "@prisma/client": "^5.20.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
@@ -30,11 +31,13 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "google-auth-library": "^11.0.2",
-    "jsonwebtoken": "^9.0.3",
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@babel/core": "^8.1.2",
+    "@babel/preset-env": "^8.0.7",
     "@eslint/js": "^9.39.5",
+    "babel-jest": "^30.5.2",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",
@@ -48,6 +51,9 @@
   "jest": {
     "testEnvironment": "node",
     "testTimeout": 20000,
+    "transformIgnorePatterns": [
+      "node_modules/(?!(lodash-es|@google/adk|@google/genai|@a2a-js)/)"
+    ],
     "testPathIgnorePatterns": [
       "/node_modules/",
       "<rootDir>/tests/e2e/"

@@ -22,6 +22,7 @@ function detectTask(systemPrompt) {
   // cierre (US-040) pueda recorrer el flujo completo hasta los documentos.
   if (systemPrompt.includes('proponer el mapa de pantallas')) return 'SCREENS';
   if (systemPrompt.includes('catalogo FIJO de escenarios de arquitectura')) return 'ARCHITECTURE';
+  if (systemPrompt.includes('generar el plan de pruebas completo')) return 'TESTING';
   throw new Error('fakeAiProvider: no se pudo identificar la tarea a partir del system prompt');
 }
 
@@ -116,19 +117,27 @@ const RESPONSES = {
       {
         name: 'Cola de tickets',
         purpose: 'Permite priorizar automaticamente los tickets entrantes',
-        mainElements: ['Lista de tickets', 'Boton priorizar'],
+        mainElements: [
+          { type: 'list', label: 'Lista de tickets', dataField: 'Ticket.title', endpointRef: 'GET /tickets' },
+          { type: 'button', label: 'Boton priorizar', dataField: null, endpointRef: 'POST /tickets' },
+        ],
         visibleToRoles: ['owner', 'editor'],
       },
       {
         name: 'Detalle de ticket',
         purpose: 'Muestra el detalle de un ticket y el agente asignado',
-        mainElements: ['Datos del ticket', 'Agente asignado'],
+        mainElements: [
+          { type: 'field', label: 'Datos del ticket', dataField: 'Ticket.title', endpointRef: null },
+          { type: 'field', label: 'Agente asignado', dataField: 'Agent.id', endpointRef: null },
+        ],
         visibleToRoles: ['owner', 'editor', 'viewer'],
       },
       {
         name: 'Listado de agentes',
         purpose: 'Lista los agentes disponibles para asignacion',
-        mainElements: ['Lista de agentes'],
+        mainElements: [
+          { type: 'list', label: 'Lista de agentes', dataField: 'Agent.id', endpointRef: 'GET /agents' },
+        ],
         visibleToRoles: ['owner'],
       },
     ],
@@ -141,6 +150,54 @@ const RESPONSES = {
     recommendedId: 'monolito-modular',
     justification:
       'El dominio es chico (Ticket, Agent) y la API tiene pocos endpoints: un monolito modular alcanza sin la complejidad operativa de microservicios o serverless.',
+  }),
+  TESTING: () => ({
+    testPlan: {
+      strategy: {
+        inScope: ['Priorizacion automatica de tickets'],
+        outOfScope: ['Reportes avanzados'],
+        riskPriorities: [{ item: 'Priorizacion incorrecta', risk: 'alto', rationale: 'Puede bloquear la atencion de tickets' }],
+      },
+      acceptanceCases: [
+        {
+          id: 'AC-1',
+          ruleRef: 'Priorizacion automatica de tickets',
+          given: 'Hay tickets pendientes',
+          when: 'El agente solicita la cola priorizada',
+          then: 'Los tickets se muestran en el orden prioritario',
+        },
+      ],
+      endpointCases: [
+        { endpointRef: 'GET /tickets', happyPath: 'Devuelve tickets', invalidData: 'Rechaza parametros invalidos', unauthorized: '401 sin token' },
+        { endpointRef: 'POST /tickets', happyPath: 'Crea el ticket', invalidData: 'Rechaza datos incompletos', unauthorized: '403 para un rol sin permiso' },
+        { endpointRef: 'GET /agents', happyPath: 'Devuelve agentes', invalidData: 'Rechaza filtros invalidos', unauthorized: '401 sin token' },
+      ],
+      screenCases: [
+        { screenRef: 'Cola de tickets', loading: 'Muestra carga', empty: 'Muestra cola vacia', error: 'Muestra error recuperable' },
+        { screenRef: 'Detalle de ticket', loading: 'Muestra carga', empty: 'Muestra detalle vacio', error: 'Muestra error recuperable' },
+        { screenRef: 'Listado de agentes', loading: 'Muestra carga', empty: 'Muestra listado vacio', error: 'Muestra error recuperable' },
+      ],
+      e2eFlows: [
+        { name: 'Priorizar tickets', steps: ['Iniciar sesion', 'Abrir cola', 'Priorizar ticket'], relatedCaseIds: ['AC-1'] },
+      ],
+      securityCases: [
+        { id: 'SEC-1', description: 'Un viewer intenta crear tickets', type: 'permisos' },
+        { id: 'SEC-2', description: 'Se intenta cambiar el id del proyecto', type: 'id-adivinado' },
+        { id: 'SEC-3', description: 'Se usa un token expirado', type: 'token-vencido' },
+      ],
+      negativeCases: [
+        { id: 'NEG-1', description: 'Crear un ticket sin titulo', expectedRejection: '400' },
+      ],
+      usabilityCases: [
+        { id: 'UX-1', description: 'Los mensajes de error son visibles y comprensibles' },
+      ],
+      testData: [
+        { entity: 'Ticket', environment: 'test', description: 'Tickets con distintos estados de prioridad' },
+      ],
+      traceabilityMatrix: [
+        { requirementRef: 'Priorizacion automatica de tickets', caseIds: ['AC-1'] },
+      ],
+    },
   }),
 };
 

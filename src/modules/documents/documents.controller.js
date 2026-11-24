@@ -67,7 +67,7 @@ async function downloadBundleController(req, res) {
   }
 
   res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', 'attachment; filename="ideator-documentos.zip"');
+  res.setHeader('Content-Disposition', 'attachment; filename="genial-documentos.zip"');
 
   const archive = archiver('zip', { zlib: { level: 9 } });
   archive.on('error', () => res.destroy());

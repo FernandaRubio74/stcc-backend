@@ -1,5 +1,5 @@
 // ============================================================
-// Ideator - Modelo de datos inicial
+// GENIAL - Modelo de datos inicial
 // US: Como equipo de backend, quiero un modelo de datos inicial
 // para usuarios, proyectos y membresias...
 // ============================================================
@@ -52,12 +52,24 @@ enum ApiSpecVersionStatus {
   APPROVED
 }
 
-// US-035/US-036: los dos documentos Markdown finales que entrega Ideator.
+// US-035/US-036: los dos documentos Markdown finales que entrega GENIAL.
 // El tipo distingue cual de los dos es, y el versionado es independiente
 // por tipo (ver GeneratedDocument).
 enum GeneratedDocumentKind {
   SPEC
   ARCHITECTURE
+}
+
+// Mismo ciclo de vida que DataModelVersionStatus/ApiSpecVersionStatus.
+enum TestPlanVersionStatus {
+  DRAFT
+  APPROVED
+}
+
+// Idem - ver ScreenMapVersion.
+enum ScreenMapVersionStatus {
+  DRAFT
+  APPROVED
 }
 
 // ------------------------------------------------------------
@@ -91,8 +103,11 @@ model User {
   approvedModelVersions DataModelVersion[]  @relation("DataModelVersionApprover")
   authoredApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionAuthor")
   approvedApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionApprover")
-  authoredScreenMaps      ScreenMap[]       @relation("ScreenMapAuthor")
+  authoredScreenMapVersions ScreenMapVersion[] @relation("ScreenMapVersionAuthor")
+  approvedScreenMapVersions ScreenMapVersion[] @relation("ScreenMapVersionApprover")
   selectedArchitectures   ProjectArchitecture[] @relation("ProjectArchitectureSelector")
+  authoredTestPlanVersions TestPlanVersion[]    @relation("TestPlanVersionAuthor")
+  approvedTestPlanVersions TestPlanVersion[]    @relation("TestPlanVersionApprover")
   authoredDocuments       GeneratedDocument[]   @relation("GeneratedDocumentAuthor")
 
   // Evita que dos usuarios locales/SSO compartan la misma identidad externa
@@ -104,8 +119,11 @@ model User {
 // Project
 // ------------------------------------------------------------
 model Project {
-  id          String  @id @default(uuid()) @db.Uuid
-  name        String  @db.VarChar(150)
+  id String @id @default(uuid()) @db.Uuid
+  // Sin @db.VarChar(150) (como tenia antes): el valor cifrado en reposo (ver
+  // database/fieldEncryption.js) es un sobre JSON serializado bastante mas
+  // largo que el nombre real, VarChar(150) se quedaba corto.
+  name        String
   description String?
   isPrivate   Boolean @default(true) @map("is_private")
 
@@ -123,8 +141,9 @@ model Project {
   blockingQuestions  BlockingQuestion[]
   dataModelVersions  DataModelVersion[]
   apiSpecVersions    ApiSpecVersion[]
-  screenMap          ScreenMap?
+  screenMapVersions  ScreenMapVersion[]
   architecture       ProjectArchitecture?
+  testPlanVersions   TestPlanVersion[]
   generatedDocuments GeneratedDocument[]
 
   @@map("projects")
@@ -273,25 +292,39 @@ model ApiSpecVersion {
 }
 
 // ------------------------------------------------------------
-// ScreenMap (US-027) — mapa de pantallas, navegacion y mockups de baja
-// fidelidad. A diferencia de DataModelVersion/ApiSpecVersion, el DoD no
-// pide versionado DRAFT/APPROVED para esta etapa: es una fila 1:1 por
-// proyecto que se sobreescribe al regenerar (mismo patron que
-// ProjectDefinition).
+// ScreenMapVersion — mapa de pantallas, navegacion y wireframes de baja
+// fidelidad. Mismo esquema de versionado DRAFT/APPROVED que
+// DataModelVersion/ApiSpecVersion (pedido explicito: el usuario revisa y
+// aprueba el mapa de pantallas igual que el modelo de datos, antes de que
+// la etapa de Pruebas pueda referenciarlo). `screens[].mainElements` es un
+// array de elementos ESTRUCTURADOS (no strings sueltos, ver
+// screens/screen.schema.js): { type, label, dataField, endpointRef } -
+// `dataField`/`endpointRef` referencian EXACTAMENTE una entidad.atributo o
+// un "METODO /ruta" reales (validado por screens/coherence.js), para que
+// el wireframe en vivo del frontend y el documento final sepan de donde
+// viene cada dato sin que la otra IA tenga que adivinarlo.
 // ------------------------------------------------------------
-model ScreenMap {
-  projectId  String  @id @map("project_id") @db.Uuid
-  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  screens    Json
-  navigation Json
-  diagram    String
+model ScreenMapVersion {
+  id            String                @id @default(uuid()) @db.Uuid
+  projectId     String                @map("project_id") @db.Uuid
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                   @map("version_number")
+  status        ScreenMapVersionStatus @default(DRAFT)
+  screens       Json
+  navigation    Json
+  diagram       String
 
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
   createdById String?  @map("created_by") @db.Uuid
-  createdBy   User?    @relation("ScreenMapAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy   User?    @relation("ScreenMapVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
-  @@map("screen_maps")
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("ScreenMapVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_screen_map_version")
+  @@index([projectId, status])
+  @@map("screen_map_versions")
 }
 
 // ------------------------------------------------------------
@@ -316,6 +349,45 @@ model ProjectArchitecture {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("project_architectures")
+}
+
+// ------------------------------------------------------------
+// TestPlanVersion — etapa "Pruebas", entre Arquitectura y Revision final.
+// Mismo esquema de versionado que DataModelVersion/ApiSpecVersion: snapshot
+// completo por version, DRAFT editable hasta que se aprueba. `content` es
+// un JSON con esta forma (ver testing/prompts.js y testing.service.js):
+// {
+//   strategy: { inScope: string[], outOfScope: string[], riskPriorities: Array<{item, risk: 'alto'|'medio'|'bajo', rationale}> },
+//   acceptanceCases: Array<{ id, ruleRef, given, when, then }>,
+//   endpointCases: Array<{ endpointRef: "METHOD path", happyPath, invalidData, unauthorized }>,
+//   screenCases: Array<{ screenRef: nombre de pantalla, loading, empty, error }>,
+//   e2eFlows: Array<{ name, steps: string[], relatedCaseIds: string[] }>,
+//   securityCases: Array<{ id, description, type: 'permisos'|'id-adivinado'|'token-vencido' }>,
+//   negativeCases: Array<{ id, description, expectedRejection }>,
+//   usabilityCases: Array<{ id, description }>,
+//   testData: Array<{ entity, environment, description }>,
+//   traceabilityMatrix: Array<{ requirementRef, caseIds: string[] }>,
+// }
+// ------------------------------------------------------------
+model TestPlanVersion {
+  id            String                @id @default(uuid()) @db.Uuid
+  projectId     String                @map("project_id") @db.Uuid
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                   @map("version_number")
+  status        TestPlanVersionStatus @default(DRAFT)
+  content       Json
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("TestPlanVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("TestPlanVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_test_plan_version")
+  @@index([projectId, status])
+  @@map("test_plan_versions")
 }
 
 // ------------------------------------------------------------

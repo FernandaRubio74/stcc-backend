@@ -2,18 +2,17 @@
  * Tests funcionales de /projects/:projectId/review-summary sobre HTTP real.
  */
 const request = require('supertest');
-const jwt = require('jsonwebtoken');
+const { generateSessionToken } = require('../../src/modules/auth/token.service');
 const app = require('../../src/app');
-const env = require('../../src/config/env');
 const prisma = require('../../src/database/client');
 
 function tokenDe(userId, email = 'x@ideator.com') {
-  return jwt.sign({ sub: userId, email }, env.jwt.secret, { expiresIn: '1d' });
+  return generateSessionToken({ id: userId, email });
 }
 
 async function cleanDatabase() {
   await prisma.projectArchitecture.deleteMany({});
-  await prisma.screenMap.deleteMany({});
+  await prisma.screenMapVersion.deleteMany({});
   await prisma.apiSpecVersion.deleteMany({});
   await prisma.dataModelVersion.deleteMany({});
   await prisma.blockingQuestion.deleteMany({});

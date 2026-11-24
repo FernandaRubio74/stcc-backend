@@ -6,6 +6,7 @@
  * misma operacion que el proyecto y esa garantia se pierde si se lo saltea.
  */
 const prisma = require('../../database/client');
+const reviewService = require('../review/review.service');
 
 class ProjectNotFoundError extends Error {}
 
@@ -49,13 +50,30 @@ async function getProjectById(projectId) {
  * Lista solo los proyectos donde el usuario tiene una membresia, sin importar
  * el rol. La privacidad no se filtra aca porque ya esta implicita: si no es
  * miembro, no aparece.
+ *
+ * Ademas del proyecto, devuelve el rol del usuario en ESE proyecto (distinto
+ * por fila, a diferencia de getProjectById donde el rol lo resuelve el
+ * middleware de membresia) y un progreso liviano de 5 etapas (US-065: antes
+ * la tarjeta de "Mis proyectos" no tenia ningun dato de avance real).
  */
-async function listProjectsForUser(userId) {
-  return prisma.project.findMany({
+async function listProjectsForUser(userId, deps = {}) {
+  const projects = await prisma.project.findMany({
     where: { members: { some: { userId } } },
-    select: PROJECT_SELECT,
+    select: {
+      ...PROJECT_SELECT,
+      updatedAt: true,
+      members: { where: { userId }, select: { role: true } },
+    },
     orderBy: { createdAt: 'desc' },
   });
+
+  return Promise.all(
+    projects.map(async ({ members, ...project }) => ({
+      ...project,
+      role: members[0]?.role ?? null,
+      progress: await reviewService.computeStageProgress(project.id, deps),
+    }))
+  );
 }
 
 /**

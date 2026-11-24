@@ -3,15 +3,17 @@
  * etapas y bloqueos, contra Postgres real.
  */
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 const projectsService = require('../../src/modules/projects/projects.service');
 const reviewService = require('../../src/modules/review/review.service');
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
-const prisma = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
+const prisma = withFieldEncryption(new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } }));
 
 async function cleanDatabase() {
+  await prisma.testPlanVersion.deleteMany({});
   await prisma.projectArchitecture.deleteMany({});
-  await prisma.screenMap.deleteMany({});
+  await prisma.screenMapVersion.deleteMany({});
   await prisma.apiSpecVersion.deleteMany({});
   await prisma.dataModelVersion.deleteMany({});
   await prisma.blockingQuestion.deleteMany({});
@@ -56,11 +58,32 @@ async function completarTodasLasEtapas(project, owner) {
   await prisma.apiSpecVersion.create({
     data: { projectId: project.id, versionNumber: 1, status: 'APPROVED', endpoints: VALID_ENDPOINTS, createdById: owner.id, approvedById: owner.id, approvedAt: new Date() },
   });
-  await prisma.screenMap.create({
-    data: { projectId: project.id, screens: [{ name: 'Tickets', purpose: 'feature para el cliente', mainElements: ['lista'], visibleToRoles: ['owner'] }], navigation: [], diagram: 'flowchart TD', createdById: owner.id },
+  await prisma.screenMapVersion.create({
+    data: {
+      projectId: project.id,
+      versionNumber: 1,
+      status: 'APPROVED',
+      screens: [{ name: 'Tickets', purpose: 'feature para el cliente', mainElements: [{ type: 'list', label: 'Lista', dataField: null, endpointRef: null }], visibleToRoles: ['owner', 'editor', 'viewer'] }],
+      navigation: [],
+      diagram: 'flowchart TD',
+      createdById: owner.id,
+      approvedById: owner.id,
+      approvedAt: new Date(),
+    },
   });
   await prisma.projectArchitecture.create({
     data: { projectId: project.id, selectedId: 'monolito-modular', selectedAt: new Date(), selectedById: owner.id },
+  });
+  await prisma.testPlanVersion.create({
+    data: {
+      projectId: project.id,
+      versionNumber: 1,
+      status: 'APPROVED',
+      content: { strategy: { inScope: ['feature'], outOfScope: [], riskPriorities: [] } },
+      createdById: owner.id,
+      approvedById: owner.id,
+      approvedAt: new Date(),
+    },
   });
 }
 
@@ -75,6 +98,7 @@ describe('getReviewSummary', () => {
     expect(summary.stages.apiSpec.complete).toBe(false);
     expect(summary.stages.screens.complete).toBe(false);
     expect(summary.stages.architecture.complete).toBe(false);
+    expect(summary.stages.testing.complete).toBe(false);
     expect(summary.readyToGenerate).toBe(false);
   });
 

@@ -14,7 +14,15 @@ async function getArchitectureController(req, res) {
 
 async function recommendArchitectureController(req, res) {
   try {
-    const result = await architectureService.recommendArchitecture(req.params.projectId, req.user.id);
+    // "Ajustar con IA" (chatbot transversal): instruccion opcional en texto
+    // libre (ej. "prefiero algo mas simple") que pesa en la recomendacion.
+    const instruction = typeof req.body?.instruction === 'string' ? req.body.instruction.trim() : undefined;
+    const result = await architectureService.recommendArchitecture(
+      req.params.projectId,
+      req.user.id,
+      {},
+      instruction || undefined
+    );
     return res.status(201).json(result);
   } catch (err) {
     if (err instanceof NoApprovedVersionError) {

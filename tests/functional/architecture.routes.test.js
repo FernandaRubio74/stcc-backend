@@ -5,19 +5,18 @@
 jest.mock('../../src/modules/ai/ai.service');
 
 const request = require('supertest');
-const jwt = require('jsonwebtoken');
+const { generateSessionToken } = require('../../src/modules/auth/token.service');
 const app = require('../../src/app');
-const env = require('../../src/config/env');
 const prisma = require('../../src/database/client');
 const aiService = require('../../src/modules/ai/ai.service');
 
 function tokenDe(userId, email = 'x@ideator.com') {
-  return jwt.sign({ sub: userId, email }, env.jwt.secret, { expiresIn: '1d' });
+  return generateSessionToken({ id: userId, email });
 }
 
 async function cleanDatabase() {
   await prisma.projectArchitecture.deleteMany({});
-  await prisma.screenMap.deleteMany({});
+  await prisma.screenMapVersion.deleteMany({});
   await prisma.apiSpecVersion.deleteMany({});
   await prisma.dataModelVersion.deleteMany({});
   await prisma.blockingQuestion.deleteMany({});
@@ -120,6 +119,25 @@ describe('POST /projects/:projectId/architecture/recommend', () => {
       .set('Authorization', `Bearer ${tokenDe(owner.id)}`);
 
     expect(res.status).toBe(502);
+  });
+
+  test('acepta una instruccion opcional (chatbot transversal) que llega al prompt de la IA', async () => {
+    const owner = await crearUsuario('owner2c@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+    await crearModeloAprobado(project.id, owner.id);
+    aiService.requestStructuredJson.mockResolvedValue({
+      recommendedId: 'monolito-modular',
+      justification: 'justificacion',
+    });
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/architecture/recommend`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ instruction: 'Prefiero algo lo mas simple posible, sin microservicios' });
+
+    expect(res.status).toBe(201);
+    const callArgs = aiService.requestStructuredJson.mock.calls[0][0];
+    expect(callArgs.userContent).toContain('Prefiero algo lo mas simple posible');
   });
 });
 

@@ -10,7 +10,12 @@
  */
 const defaultPrisma = require('../../database/client');
 const defaultAiService = require('../ai/ai.service');
-const { getSystemPromptForStage } = require('./prompts');
+const {
+  getSystemPromptForStage,
+  SUGGESTION_AGENT_PROMPT,
+  getStarterSuggestions,
+  getStageTransitionAnnouncement,
+} = require('./prompts');
 const { StageBlockedError, NoNextStageError } = require('./definition.errors');
 
 const STAGE_ORDER = ['PROBLEM_CONTEXT', 'TARGET_USERS_SCOPE'];
@@ -107,6 +112,33 @@ async function reconcileBlockingQuestions(prismaClient, projectId, stage, aiBloc
 }
 
 /**
+ * Pide al agente de sugerencias (separado del que conduce la conversacion)
+ * candidatas a la respuesta del usuario para el ultimo mensaje del
+ * asistente. Degrada a `[]` ante cualquier falla (timeout, cuota, JSON
+ * invalido, incluso un mock de test que no implemente este metodo): el
+ * chat de texto libre tiene que seguir funcionando siempre, las sugerencias
+ * son una ayuda opcional, nunca un requisito para poder responder.
+ */
+async function requestReplySuggestions(ai, { stage, reply, definition, blockingQuestions }, deps) {
+  if (typeof ai.requestSuggestions !== 'function') return [];
+  try {
+    const userContent = JSON.stringify({
+      etapa: stage,
+      ultimoMensajeDelAsistente: reply,
+      contextoExtraidoHastaAhora: serializeDefinition(definition),
+      preguntasBloqueantesAbiertas: blockingQuestions,
+    });
+    const suggestions = await ai.requestSuggestions(
+      { systemPrompt: SUGGESTION_AGENT_PROMPT, userContent, maxOutputTokens: 400 },
+      deps
+    );
+    return Array.isArray(suggestions) ? suggestions : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * T-015.3 - Estado completo del wizard: etapa actual, datos estructurados,
  * historial completo (todas las etapas) y preguntas bloqueantes abiertas.
  * Permite retomar la conversacion exactamente donde se dejo.
@@ -128,7 +160,30 @@ async function getDefinitionState(projectId, deps = {}) {
     }),
   ]);
 
-  return { ...serializeDefinition(definition), messages, blockingQuestions };
+  // Si en la etapa actual todavia nadie (la persona) respondio nada - ya
+  // sea porque no hay ningun mensaje, o porque lo unico que hay es el
+  // anuncio de cambio de etapa que puso el asistente - no hay contexto
+  // real propio del usuario para que el agente de sugerencias trabaje, asi
+  // que se ofrecen ejemplos fijos (sin costo de IA) en vez de dejar la caja
+  // de texto en blanco. Esto tambien cubre recargar la pagina justo
+  // despues de avanzar de etapa, antes de responder nada: las sugerencias
+  // reales que generó `advanceStage` ya se le mostraron en esa respuesta,
+  // pero no se persisten, asi que un GET posterior cae en este fallback.
+  const messagesInCurrentStage = messages.filter((m) => m.stage === definition.currentStage);
+  const awaitingFirstReplyInStage = messagesInCurrentStage.every((m) => m.role === 'assistant');
+  const suggestions = awaitingFirstReplyInStage ? getStarterSuggestions(definition.currentStage) : [];
+
+  // Antes este GET no devolvia stageComplete (solo postMessage lo hacia),
+  // asi que recargar la pagina perdia el banner de "etapa completa" aunque
+  // el backend ya la considerara completa - y el boton de "Avanzar de
+  // etapa" quedaba en el estado "todavia podes seguir respondiendo",
+  // disparando el mismo mutation que en TARGET_USERS_SCOPE (la ultima
+  // etapa del wizard) siempre devuelve 409 (NoNextStageError) sin llevar a
+  // ningun lado. Misma regla que advanceStage: completa + sin preguntas
+  // bloqueantes abiertas.
+  const stageComplete = blockingQuestions.length === 0 && isStageDataComplete(definition.currentStage, definition);
+
+  return { ...serializeDefinition(definition), messages, blockingQuestions, suggestions, stageComplete };
 }
 
 /**
@@ -175,12 +230,28 @@ async function postMessage({ projectId, userId, content }, deps = {}) {
     result.blockingQuestions
   );
 
+  // Segundo agente, coordinado con el principal pero separado de el: toma
+  // la respuesta que el agente principal recien genero y propone opciones
+  // de un click para la PROXIMA respuesta del usuario (US de UX del
+  // wizard - evitar que la persona tenga que escribir todo a mano).
+  const suggestions = await requestReplySuggestions(
+    ai,
+    {
+      stage,
+      reply: result.reply,
+      definition: updatedDefinition,
+      blockingQuestions: openBlockingQuestions.map((q) => q.question),
+    },
+    deps
+  );
+
   return {
     stage,
     reply: result.reply,
     stageComplete: result.stageComplete,
     blockingQuestions: openBlockingQuestions.map((q) => q.question),
     definition: serializeDefinition(updatedDefinition),
+    suggestions,
   };
 }
 
@@ -201,6 +272,7 @@ async function listBlockingQuestions(projectId, deps = {}) {
  */
 async function advanceStage(projectId, deps = {}) {
   const prismaClient = deps.prisma || defaultPrisma;
+  const ai = deps.ai || defaultAiService;
   const definition = await getOrCreateDefinition(projectId, prismaClient);
   const stage = definition.currentStage;
 
@@ -227,12 +299,33 @@ async function advanceStage(projectId, deps = {}) {
     throw new NoNextStageError('Ya se completaron todas las etapas definidas');
   }
 
+  const nextStage = STAGE_ORDER[nextIndex];
   const updated = await prismaClient.projectDefinition.update({
     where: { projectId },
-    data: { currentStage: STAGE_ORDER[nextIndex] },
+    data: { currentStage: nextStage },
   });
 
-  return serializeDefinition(updated);
+  // Pedido explicito: que el cambio de etapa quede anunciado en el chat
+  // (no que la conversacion simplemente siga como si nada), y que esa
+  // primera pregunta de la etapa nueva tambien venga con sugerencias de un
+  // click, igual que cualquier otro turno.
+  const announcement = getStageTransitionAnnouncement(nextStage, updated);
+  let suggestions = getStarterSuggestions(nextStage);
+
+  if (announcement) {
+    await prismaClient.definitionMessage.create({
+      data: { projectId, stage: nextStage, role: 'assistant', content: announcement },
+    });
+
+    const generated = await requestReplySuggestions(
+      ai,
+      { stage: nextStage, reply: announcement, definition: updated, blockingQuestions: [] },
+      deps
+    );
+    if (generated.length > 0) suggestions = generated;
+  }
+
+  return { ...serializeDefinition(updated), suggestions };
 }
 
 module.exports = {

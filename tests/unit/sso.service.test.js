@@ -133,17 +133,6 @@ describe('findOrCreateUserFromGoogleProfile', () => {
 });
 
 describe('handleGoogleSsoCallback', () => {
-  const env = require('../../src/config/env');
-  const originalSecret = env.jwt.secret;
-
-  beforeAll(() => {
-    env.jwt.secret = 'test-secret';
-  });
-
-  afterAll(() => {
-    env.jwt.secret = originalSecret;
-  });
-
   test('retorna 401 controlado (MissingAuthorizationCodeError) si no llega el code', async () => {
     await expect(handleGoogleSsoCallback(undefined)).rejects.toThrow(
       MissingAuthorizationCodeError,

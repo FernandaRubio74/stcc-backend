@@ -10,14 +10,16 @@
  */
 const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-const prisma = new PrismaClient();
+const prisma = withFieldEncryption(new PrismaClient());
 
 async function cleanDatabase() {
   await prisma.generatedDocument.deleteMany({});
+  await prisma.testPlanVersion.deleteMany({});
   await prisma.projectArchitecture.deleteMany({});
-  await prisma.screenMap.deleteMany({});
+  await prisma.screenMapVersion.deleteMany({});
   await prisma.apiSpecVersion.deleteMany({});
   await prisma.dataModelVersion.deleteMany({});
   await prisma.blockingQuestion.deleteMany({});
@@ -56,6 +58,7 @@ async function llevarProyectoAListoParaGenerar(token, projectId) {
   await request(BASE_URL).post(`/projects/${projectId}/api-spec/approve`).set('Authorization', token);
 
   await request(BASE_URL).post(`/projects/${projectId}/screens/generate`).set('Authorization', token);
+  await request(BASE_URL).post(`/projects/${projectId}/screens/approve`).set('Authorization', token);
 
   const recomendacion = await request(BASE_URL)
     .post(`/projects/${projectId}/architecture/recommend`)
@@ -64,6 +67,9 @@ async function llevarProyectoAListoParaGenerar(token, projectId) {
     .post(`/projects/${projectId}/architecture/select`)
     .set('Authorization', token)
     .send({ architectureId: recomendacion.body.recommendedId });
+
+  await request(BASE_URL).post(`/projects/${projectId}/testing/generate`).set('Authorization', token);
+  await request(BASE_URL).post(`/projects/${projectId}/testing/approve`).set('Authorization', token);
 }
 
 describe('E2E - etapa de cierre: revision final -> generacion -> descarga', () => {

@@ -5,14 +5,13 @@
 jest.mock('../../src/modules/ai/ai.service');
 
 const request = require('supertest');
-const jwt = require('jsonwebtoken');
+const { generateSessionToken } = require('../../src/modules/auth/token.service');
 const app = require('../../src/app');
-const env = require('../../src/config/env');
 const prisma = require('../../src/database/client');
 const aiService = require('../../src/modules/ai/ai.service');
 
 function tokenDe(userId, email = 'x@ideator.com') {
-  return jwt.sign({ sub: userId, email }, env.jwt.secret, { expiresIn: '1d' });
+  return generateSessionToken({ id: userId, email });
 }
 
 async function cleanDatabase() {
@@ -127,6 +126,65 @@ describe('POST /projects/:projectId/api-spec/generate', () => {
       .set('Authorization', `Bearer ${tokenDe(owner.id)}`);
 
     expect(res.status).toBe(502);
+  });
+});
+
+describe('POST /projects/:projectId/api-spec/refine', () => {
+  test('responde 409 si todavia no hay ninguna especificacion generada para ajustar', async () => {
+    const owner = await crearUsuario('owner-refine1@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+    await prisma.dataModelVersion.create({
+      data: {
+        projectId: project.id,
+        versionNumber: 1,
+        status: 'APPROVED',
+        entities: VALID_ENTITIES,
+        createdById: owner.id,
+        approvedById: owner.id,
+        approvedAt: new Date(),
+      },
+    });
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/api-spec/refine`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ instruction: 'Agrega un endpoint para borrar usuarios' });
+
+    expect(res.status).toBe(409);
+  });
+
+  test('aplica la instruccion sobre el DRAFT existente (chatbot transversal)', async () => {
+    const owner = await crearUsuario('owner-refine2@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+    await prisma.dataModelVersion.create({
+      data: {
+        projectId: project.id,
+        versionNumber: 1,
+        status: 'APPROVED',
+        entities: VALID_ENTITIES,
+        createdById: owner.id,
+        approvedById: owner.id,
+        approvedAt: new Date(),
+      },
+    });
+    aiService.requestStructuredJson.mockResolvedValue({ endpoints: VALID_ENDPOINTS });
+    await request(app)
+      .post(`/projects/${project.id}/api-spec/generate`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`);
+
+    const ENDPOINTS_CON_DELETE = [
+      ...VALID_ENDPOINTS,
+      { method: 'DELETE', path: '/users/{id}', description: 'Borra un usuario', resourceEntity: 'User', parameters: [], responses: [{ status: 204, description: 'ok' }] },
+    ];
+    aiService.requestStructuredJson.mockResolvedValue({ endpoints: ENDPOINTS_CON_DELETE });
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/api-spec/refine`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ instruction: 'Agrega un endpoint para borrar usuarios' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.endpoints).toEqual(ENDPOINTS_CON_DELETE);
   });
 });
 

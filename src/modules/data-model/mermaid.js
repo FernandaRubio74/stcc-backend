@@ -9,6 +9,45 @@ function sanitizeIdentifier(name) {
   return name.trim().replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
 }
 
+/**
+ * En `erDiagram`, el tipo y el nombre de un atributo tienen que ser UNA
+ * sola palabra (el parser espera ATTRIBUTE_WORD). Cualquier otra cosa
+ * rompe el diagrama entero, no solo esa linea.
+ *
+ * Regresion real: al pedirle al modelo de datos que deje los tipos de
+ * usuario escritos en el `type` del campo de rol (ej.
+ * "enum: miembro del equipo | admin"), eso se emitia tal cual y el
+ * diagrama fallaba con "Expecting 'ATTRIBUTE_WORD', got ':'". Tambien
+ * podia pasar con una edicion manual del modelo.
+ */
+function sanitizeAttributeWord(value) {
+  const cleaned = (value || '').trim().replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return cleaned || 'campo';
+}
+
+/**
+ * Para un tipo compuesto se muestra solo su "cabeza" (ej. `enum` de
+ * "enum: miembro del equipo | admin"): el detalle completo va igual en el
+ * comentario, y asi el diagrama queda legible en vez de con un tipo
+ * larguisimo con guiones bajos.
+ */
+function attributeType(rawType) {
+  const trimmed = (rawType || '').trim();
+  const head = trimmed.split(/[:(|]/)[0].trim();
+  const candidate = head && /^[a-zA-Z0-9_-]+$/.test(head) ? head : trimmed;
+  return sanitizeAttributeWord(candidate);
+}
+
+/**
+ * El texto original no se pierde: va como comentario del atributo (que
+ * Mermaid si soporta y admite espacios). Las comillas dobles se cambian
+ * por simples porque el comentario va entre comillas dobles.
+ */
+function attributeComment(originalType, sanitizedType) {
+  if (originalType === sanitizedType) return '';
+  return ` "${originalType.trim().replace(/"/g, "'")}"`;
+}
+
 function keyAnnotation(attribute) {
   const tags = [];
   if (attribute.primaryKey) tags.push('PK');
@@ -25,7 +64,10 @@ function generateMermaidDiagram(entities) {
     lines.push(`  ${entityId} {`);
     for (const attribute of entity.attributes) {
       const key = keyAnnotation(attribute);
-      lines.push(key ? `    ${attribute.type} ${attribute.name} ${key}` : `    ${attribute.type} ${attribute.name}`);
+      const type = attributeType(attribute.type);
+      const name = sanitizeAttributeWord(attribute.name);
+      const comment = attributeComment(attribute.type || '', type);
+      lines.push(`    ${type} ${name}${key ? ` ${key}` : ''}${comment}`);
     }
     lines.push('  }');
   }

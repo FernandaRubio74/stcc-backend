@@ -3,19 +3,19 @@
  * HTTP real: generacion, bloqueo 409 con el detalle, historial y permisos.
  */
 const request = require('supertest');
-const jwt = require('jsonwebtoken');
+const { generateSessionToken } = require('../../src/modules/auth/token.service');
 const app = require('../../src/app');
-const env = require('../../src/config/env');
 const prisma = require('../../src/database/client');
 
 function tokenDe(userId, email = 'x@ideator.com') {
-  return jwt.sign({ sub: userId, email }, env.jwt.secret, { expiresIn: '1d' });
+  return generateSessionToken({ id: userId, email });
 }
 
 async function cleanDatabase() {
   await prisma.generatedDocument.deleteMany({});
+  await prisma.testPlanVersion.deleteMany({});
   await prisma.projectArchitecture.deleteMany({});
-  await prisma.screenMap.deleteMany({});
+  await prisma.screenMapVersion.deleteMany({});
   await prisma.apiSpecVersion.deleteMany({});
   await prisma.dataModelVersion.deleteMany({});
   await prisma.blockingQuestion.deleteMany({});
@@ -84,19 +84,39 @@ async function completarTodasLasEtapas(projectId, ownerId) {
       approvedAt: new Date(),
     },
   });
-  await prisma.screenMap.create({
+  await prisma.screenMapVersion.create({
     data: {
       projectId,
+      versionNumber: 1,
+      status: 'APPROVED',
       screens: [
-        { name: 'Tickets', purpose: 'feature para el cliente', mainElements: ['lista'], visibleToRoles: ['owner'] },
+        {
+          name: 'Tickets',
+          purpose: 'feature para el cliente',
+          mainElements: [{ type: 'list', label: 'Lista', dataField: null, endpointRef: null }],
+          visibleToRoles: ['owner', 'editor', 'viewer'],
+        },
       ],
       navigation: [],
       diagram: 'flowchart TD',
       createdById: ownerId,
+      approvedById: ownerId,
+      approvedAt: new Date(),
     },
   });
   await prisma.projectArchitecture.create({
     data: { projectId, selectedId: 'monolito-modular', selectedAt: new Date(), selectedById: ownerId },
+  });
+  await prisma.testPlanVersion.create({
+    data: {
+      projectId,
+      versionNumber: 1,
+      status: 'APPROVED',
+      content: { strategy: { inScope: ['feature'], outOfScope: [], riskPriorities: [] } },
+      createdById: ownerId,
+      approvedById: ownerId,
+      approvedAt: new Date(),
+    },
   });
 }
 
@@ -269,7 +289,7 @@ describe('GET /projects/:projectId/documents/bundle', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('application/zip');
-    expect(res.headers['content-disposition']).toContain('ideator-documentos.zip');
+    expect(res.headers['content-disposition']).toContain('genial-documentos.zip');
     expect(Buffer.isBuffer(res.body)).toBe(true);
     // Firma de un archivo ZIP.
     expect(res.body.slice(0, 2).toString()).toBe('PK');

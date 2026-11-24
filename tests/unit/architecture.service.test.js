@@ -5,6 +5,7 @@
  * Corre contra Postgres real; solo se mockea la IA.
  */
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 const projectsService = require('../../src/modules/projects/projects.service');
 const dataModelService = require('../../src/modules/data-model/data-model.service');
 const architectureService = require('../../src/modules/architecture/architecture.service');
@@ -13,11 +14,11 @@ const { InvalidArchitectureIdError } = require('../../src/modules/architecture/a
 const { NoApprovedVersionError } = require('../../src/modules/data-model/data-model.errors');
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
-const prisma = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
+const prisma = withFieldEncryption(new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } }));
 
 async function cleanDatabase() {
   await prisma.projectArchitecture.deleteMany({});
-  await prisma.screenMap.deleteMany({});
+  await prisma.screenMapVersion.deleteMany({});
   await prisma.apiSpecVersion.deleteMany({});
   await prisma.dataModelVersion.deleteMany({});
   await prisma.blockingQuestion.deleteMany({});

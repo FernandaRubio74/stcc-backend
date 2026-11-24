@@ -1,5 +1,5 @@
 const dataModelService = require('./data-model.service');
-const { InsufficientDefinitionError, DraftNotFoundError } = require('./data-model.errors');
+const { InsufficientDefinitionError, DraftNotFoundError, NoCurrentContentError } = require('./data-model.errors');
 const { AiTimeoutError, AiProviderError, AiResponseValidationError } = require('../ai/ai.errors');
 
 async function getDataModelController(req, res) {
@@ -13,6 +13,23 @@ async function generateDataModelController(req, res) {
     return res.status(201).json(draft);
   } catch (err) {
     if (err instanceof InsufficientDefinitionError) {
+      return res.status(409).json({ error: err.message });
+    }
+    if (err instanceof AiTimeoutError || err instanceof AiProviderError || err instanceof AiResponseValidationError) {
+      return res
+        .status(500)
+        .json({ error: 'El asistente de IA no esta disponible en este momento, intenta de nuevo' });
+    }
+    throw err;
+  }
+}
+
+async function refineDataModelController(req, res) {
+  try {
+    const draft = await dataModelService.refineDataModel(req.params.projectId, req.user.id, req.body.instruction);
+    return res.status(200).json(draft);
+  } catch (err) {
+    if (err instanceof InsufficientDefinitionError || err instanceof NoCurrentContentError) {
       return res.status(409).json({ error: err.message });
     }
     if (err instanceof AiTimeoutError || err instanceof AiProviderError || err instanceof AiResponseValidationError) {
@@ -44,6 +61,7 @@ async function approveVersionController(req, res) {
 module.exports = {
   getDataModelController,
   generateDataModelController,
+  refineDataModelController,
   updateEntitiesController,
   approveVersionController,
 };

@@ -1,5 +1,5 @@
 const apiSpecService = require('./api-spec.service');
-const { DraftNotFoundError, EndpointEntityMismatchError } = require('./api-spec.errors');
+const { DraftNotFoundError, EndpointEntityMismatchError, NoCurrentContentError } = require('./api-spec.errors');
 const { NoApprovedVersionError } = require('../data-model/data-model.errors');
 const { AiTimeoutError, AiProviderError, AiResponseValidationError } = require('../ai/ai.errors');
 
@@ -14,6 +14,26 @@ async function generateApiSpecController(req, res) {
     return res.status(201).json(draft);
   } catch (err) {
     if (err instanceof NoApprovedVersionError) {
+      return res.status(409).json({ error: err.message });
+    }
+    if (err instanceof EndpointEntityMismatchError) {
+      return res.status(502).json({ error: err.message });
+    }
+    if (err instanceof AiTimeoutError || err instanceof AiProviderError || err instanceof AiResponseValidationError) {
+      return res
+        .status(500)
+        .json({ error: 'El asistente de IA no esta disponible en este momento, intenta de nuevo' });
+    }
+    throw err;
+  }
+}
+
+async function refineApiSpecController(req, res) {
+  try {
+    const draft = await apiSpecService.refineApiSpec(req.params.projectId, req.user.id, req.body.instruction);
+    return res.status(200).json(draft);
+  } catch (err) {
+    if (err instanceof NoApprovedVersionError || err instanceof NoCurrentContentError) {
       return res.status(409).json({ error: err.message });
     }
     if (err instanceof EndpointEntityMismatchError) {
@@ -55,6 +75,7 @@ async function approveVersionController(req, res) {
 module.exports = {
   getApiSpecController,
   generateApiSpecController,
+  refineApiSpecController,
   updateEndpointsController,
   approveVersionController,
 };

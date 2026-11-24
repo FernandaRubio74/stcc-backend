@@ -1,12 +1,15 @@
 /**
  * T-007.1 - Tests del middleware de autenticacion (requireAuth).
  *
- * No toca la base de datos: la identidad se resuelve enteramente a partir de
- * la firma del JWT, sin ir a buscar el usuario.
+ * No toca la base de datos: la identidad se resuelve enteramente a partir
+ * del token, sin ir a buscar el usuario. El token es un JWE (cifrado
+ * hibrido RSA+AES, ver jwe.service.js), no un JWT firmado - por eso "otra
+ * clave" ahora significa "cifrado con la clave publica de OTRO par RSA",
+ * no "firmado con otro secreto compartido".
  */
-
-const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const env = require('../../src/config/env');
+const { encryptPayload } = require('../../src/modules/auth/jwe.service');
 const { requireAuth } = require('../../src/common/middlewares/auth.middleware');
 
 const USER = {
@@ -37,8 +40,8 @@ function buildNext() {
   return next;
 }
 
-function sign(payload, options = {}, secret = env.jwt.secret) {
-  return jwt.sign(payload, secret, options);
+function sign(payload, options = {}) {
+  return encryptPayload(payload, options);
 }
 
 describe('requireAuth - token valido', () => {
@@ -86,8 +89,21 @@ describe('requireAuth - token ausente o invalido', () => {
     expect(res.body).toEqual({ error: 'No autenticado' });
   });
 
-  test('responde 401 si el token esta firmado con otra clave', () => {
-    const token = sign({ sub: USER.id }, { expiresIn: '1d' }, 'clave-impostora');
+  test('responde 401 si el token fue cifrado con la clave publica de OTRO servidor (no la nuestra)', () => {
+    const impostor = crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    const originalPublicKey = env.jwt.rsaPublicKey;
+    env.jwt.rsaPublicKey = impostor.publicKey;
+    let token;
+    try {
+      token = sign({ sub: USER.id }, { expiresIn: '1d' });
+    } finally {
+      env.jwt.rsaPublicKey = originalPublicKey;
+    }
+
     const res = buildRes();
     const next = buildNext();
 
@@ -110,7 +126,7 @@ describe('requireAuth - token ausente o invalido', () => {
 
   test('responde 401 si el token es sintacticamente basura', () => {
     const res = buildRes();
-    requireAuth({ headers: { authorization: 'Bearer no-es-un-jwt' } }, res, buildNext());
+    requireAuth({ headers: { authorization: 'Bearer no-es-un-jwe' } }, res, buildNext());
     expect(res.statusCode).toBe(401);
   });
 

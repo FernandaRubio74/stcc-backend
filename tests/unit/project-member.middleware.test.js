@@ -10,15 +10,16 @@
  */
 
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 const {
   createRequireProjectMembership,
 } = require('../../src/common/middlewares/project-member.middleware');
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
-const prisma = new PrismaClient({
+const prisma = withFieldEncryption(new PrismaClient({
   datasources: { db: { url: TEST_DB_URL } },
-});
+}));
 
 const guard = createRequireProjectMembership({ prisma });
 

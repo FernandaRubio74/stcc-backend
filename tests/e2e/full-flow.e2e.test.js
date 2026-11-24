@@ -1,8 +1,8 @@
 /**
- * T-041.1-2 - E2E del flujo completo de Ideator: registro -> login -> crear
+ * T-041.1-2 - E2E del flujo completo de GENIAL: registro -> login -> crear
  * proyecto -> wizard -> modelo de datos -> API -> pantallas -> arquitectura
- * -> revision final -> documentos finales. Contra el servidor real +
- * Postgres real.
+ * -> pruebas -> revision final -> documentos finales. Contra el servidor
+ * real + Postgres real.
  *
  * "Sin mocks internos del sistema bajo prueba" (DoD): el UNICO doble es el
  * proveedor de IA (un servicio externo), via fakeAiProvider.js a nivel de
@@ -18,14 +18,16 @@
  */
 const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-const prisma = new PrismaClient();
+const prisma = withFieldEncryption(new PrismaClient());
 
 async function cleanDatabase() {
   await prisma.generatedDocument.deleteMany({});
+  await prisma.testPlanVersion.deleteMany({});
   await prisma.projectArchitecture.deleteMany({});
-  await prisma.screenMap.deleteMany({});
+  await prisma.screenMapVersion.deleteMany({});
   await prisma.apiSpecVersion.deleteMany({});
   await prisma.dataModelVersion.deleteMany({});
   await prisma.blockingQuestion.deleteMany({});
@@ -105,10 +107,12 @@ describe('E2E - flujo completo de Ideator (gate de release)', () => {
       .set('Authorization', token);
     expect(approvedSpec.status).toBe(200);
 
-    // 6. Pantallas: genera (sin aprobacion, no tiene ese ciclo de vida).
+    // 6. Pantallas: genera y aprueba (mismo ciclo DRAFT/APPROVED que modelo de datos/API).
     const screens = await request(BASE_URL).post(`/projects/${projectId}/screens/generate`).set('Authorization', token);
     expect(screens.status).toBe(201);
     expect(screens.body.screens.length).toBeGreaterThan(0);
+    const screensApproved = await request(BASE_URL).post(`/projects/${projectId}/screens/approve`).set('Authorization', token);
+    expect(screensApproved.status).toBe(200);
 
     // 7. Arquitectura: recomienda y el owner confirma.
     const recommendation = await request(BASE_URL)
@@ -122,6 +126,17 @@ describe('E2E - flujo completo de Ideator (gate de release)', () => {
       .set('Authorization', token)
       .send({ architectureId: recommendation.body.recommendedId });
     expect(selected.status).toBe(200);
+
+    // 7.5. Pruebas: genera y aprueba (etapa entre Arquitectura y Revision final).
+    const testPlan = await request(BASE_URL).post(`/projects/${projectId}/testing/generate`).set('Authorization', token);
+    expect(testPlan.status).toBe(201);
+    expect(testPlan.body.content.acceptanceCases.length).toBeGreaterThan(0);
+
+    const approvedTestPlan = await request(BASE_URL)
+      .post(`/projects/${projectId}/testing/approve`)
+      .set('Authorization', token);
+    expect(approvedTestPlan.status).toBe(200);
+    expect(approvedTestPlan.body.status).toBe('APPROVED');
 
     // 8. Revision final: tiene que estar lista para generar.
     const review = await request(BASE_URL).get(`/projects/${projectId}/review-summary`).set('Authorization', token);
@@ -137,6 +152,7 @@ describe('E2E - flujo completo de Ideator (gate de release)', () => {
     expect(specDoc.body.content).toContain('## 5. Modelo de datos');
     expect(specDoc.body.content).toContain('## 6. Endpoints de la API');
     expect(specDoc.body.content).toContain('## 7. Interfaz de usuario');
+    expect(specDoc.body.content).toContain('## 9. Plan de pruebas');
 
     const architectureDoc = await request(BASE_URL)
       .post(`/projects/${projectId}/documents/architecture`)

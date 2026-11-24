@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { requireAuth } = require('../../common/middlewares/auth.middleware');
 const { requireProjectMembership } = require('../../common/middlewares/project-member.middleware');
+const { requireRole } = require('../../common/middlewares/require-role.middleware');
 const {
   listDocumentsController,
   getDocumentController,
@@ -14,10 +15,21 @@ const router = Router();
 router.use(requireAuth);
 
 // Mismo criterio de permisos que el resto de las etapas generadas
-// (data-model, api-spec, screens): cualquier miembro puede ver el estado y
-// disparar la generacion; generar no destruye nada, crea una version nueva.
-router.post('/:projectId/documents/spec', requireProjectMembership, generateSpecDocumentController);
-router.post('/:projectId/documents/architecture', requireProjectMembership, generateArchitectureDocumentController);
+// (data-model, api-spec, screens): cualquier miembro puede VER y descargar
+// lo generado, pero generar persiste un documento nuevo en el proyecto, asi
+// que exige owner/editor (hallazgo H-01 de la revision transversal).
+router.post(
+  '/:projectId/documents/spec',
+  requireProjectMembership,
+  requireRole(['owner', 'editor']),
+  generateSpecDocumentController
+);
+router.post(
+  '/:projectId/documents/architecture',
+  requireProjectMembership,
+  requireRole(['owner', 'editor']),
+  generateArchitectureDocumentController
+);
 
 router.get('/:projectId/documents', requireProjectMembership, listDocumentsController);
 

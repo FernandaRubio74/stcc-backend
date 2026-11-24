@@ -20,6 +20,7 @@ const dataModelService = require('../data-model/data-model.service');
 const apiSpecService = require('../api-spec/api-spec.service');
 const screensService = require('../screens/screens.service');
 const architectureService = require('../architecture/architecture.service');
+const testingService = require('../testing/testing.service');
 const { ARCHITECTURE_CATALOG } = require('../architecture/catalog');
 const { buildSpecDocument } = require('./spec.template');
 const { buildArchitectureDocument } = require('./architecture.template');
@@ -53,38 +54,74 @@ function serializeDocument(document) {
   };
 }
 
+// Etiquetas para el mensaje de precondicion. Hallazgo H-06 de la revision
+// transversal: el error decia solo "el proyecto todavia no esta listo" y el
+// detalle venia en `blockers`, asi que quien consumiera la API (o leyera el
+// log) no sabia QUE faltaba. Regla A: el mensaje tiene que decir cual falta.
+const STAGE_LABELS = {
+  definition: 'la definicion del producto',
+  dataModel: 'el modelo de datos',
+  apiSpec: 'la especificacion de API',
+  screens: 'el mapa de pantallas',
+  architecture: 'la arquitectura',
+  testing: 'el plan de pruebas',
+};
+
+function describeNotReady(summary) {
+  const pending = Object.entries(summary.stages)
+    .filter(([, stage]) => !stage.complete)
+    .map(([key]) => STAGE_LABELS[key] || key);
+
+  const reasons = [];
+  if (pending.length > 0) reasons.push(`falta generar ${pending.join(', ')}`);
+  if (summary.blockingQuestions.length > 0) {
+    reasons.push(`hay ${summary.blockingQuestions.length} pregunta(s) bloqueante(s) sin resolver`);
+  }
+  const errors = summary.inconsistencies.filter((issue) => issue.status !== 'advertencia');
+  if (errors.length > 0) reasons.push(`hay ${errors.length} inconsistencia(s) entre etapas sin resolver`);
+
+  if (reasons.length === 0) return 'El proyecto todavia no esta listo para generar la documentacion final';
+  return `El proyecto todavia no esta listo para generar la documentacion final: ${reasons.join('; ')}`;
+}
+
 /** T-035.3 - Guard de precondicion: solo se genera si el proyecto esta listo (US-032). */
 async function assertReadyOrThrow(projectId, deps = {}) {
   const summary = await reviewService.getReviewSummary(projectId, deps);
 
   if (!summary.readyToGenerate) {
-    throw new ProjectNotReadyError({
-      stages: summary.stages,
-      blockingQuestions: summary.blockingQuestions,
-      inconsistencies: summary.inconsistencies,
-    });
+    throw new ProjectNotReadyError(
+      {
+        stages: summary.stages,
+        blockingQuestions: summary.blockingQuestions,
+        inconsistencies: summary.inconsistencies,
+      },
+      describeNotReady(summary)
+    );
   }
 
   return summary;
 }
 
 async function loadProjectContext(projectId, prismaClient, deps) {
-  const [project, definition, dataModelState, apiSpecState, screenMap, architecture] = await Promise.all([
-    prismaClient.project.findUnique({ where: { id: projectId } }),
-    prismaClient.projectDefinition.findUnique({ where: { projectId } }),
-    dataModelService.getDataModelState(projectId, deps),
-    apiSpecService.getApiSpecState(projectId, deps),
-    screensService.getScreenMapState(projectId, deps),
-    architectureService.getArchitectureState(projectId, deps),
-  ]);
+  const [project, definition, dataModelState, apiSpecState, screenMapState, architecture, testPlanState] =
+    await Promise.all([
+      prismaClient.project.findUnique({ where: { id: projectId } }),
+      prismaClient.projectDefinition.findUnique({ where: { projectId } }),
+      dataModelService.getDataModelState(projectId, deps),
+      apiSpecService.getApiSpecState(projectId, deps),
+      screensService.getScreenMapState(projectId, deps),
+      architectureService.getArchitectureState(projectId, deps),
+      testingService.getTestPlanState(projectId, deps),
+    ]);
 
   return {
     project,
     definition,
     dataModel: dataModelState.approved,
     apiSpec: apiSpecState.approved,
-    screenMap,
+    screenMap: screenMapState.approved,
     architecture,
+    testPlan: testPlanState.approved?.content ?? null,
     catalogEntry: ARCHITECTURE_CATALOG.find((entry) => entry.id === architecture?.selectedId) ?? null,
   };
 }
