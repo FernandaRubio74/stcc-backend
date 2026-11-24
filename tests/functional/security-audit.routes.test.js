@@ -6,13 +6,12 @@
  * sin el rol requerido (403).
  */
 const request = require('supertest');
-const jwt = require('jsonwebtoken');
+const { generateSessionToken } = require('../../src/modules/auth/token.service');
 const app = require('../../src/app');
-const env = require('../../src/config/env');
 const prisma = require('../../src/database/client');
 
 function tokenDe(userId, email = 'x@ideator.com') {
-  return jwt.sign({ sub: userId, email }, env.jwt.secret, { expiresIn: '1d' });
+  return generateSessionToken({ id: userId, email });
 }
 
 function crearUsuario(email) {
@@ -22,7 +21,7 @@ function crearUsuario(email) {
 async function cleanDatabase() {
   await prisma.generatedDocument.deleteMany({});
   await prisma.projectArchitecture.deleteMany({});
-  await prisma.screenMap.deleteMany({});
+  await prisma.screenMapVersion.deleteMany({});
   await prisma.apiSpecVersion.deleteMany({});
   await prisma.dataModelVersion.deleteMany({});
   await prisma.blockingQuestion.deleteMany({});
@@ -80,6 +79,7 @@ const RUTAS_DE_OWNER = [
   ['post', (id) => `/projects/${id}/members`, { email: 'nuevo@ideator.com', role: 'viewer' }],
   ['post', (id) => `/projects/${id}/data-model/approve`],
   ['post', (id) => `/projects/${id}/api-spec/approve`],
+  ['post', (id) => `/projects/${id}/screens/approve`],
   ['post', (id) => `/projects/${id}/architecture/select`, { architectureId: 'monolito-modular' }],
 ];
 

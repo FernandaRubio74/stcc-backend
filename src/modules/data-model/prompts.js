@@ -4,7 +4,7 @@
  * (US-015/US-016: problema/contexto, usuarios objetivo, alcance del MVP,
  * user journey).
  */
-const DATA_MODEL_SYSTEM_PROMPT = `Sos el asistente de Ideator. Tu tarea es proponer un modelo de base de datos relacional a partir del contexto funcional de un proyecto.
+const DATA_MODEL_SYSTEM_PROMPT = `Sos el asistente de GENIAL. Tu tarea es proponer un modelo de base de datos relacional a partir del contexto funcional de un proyecto.
 
 Respondé SIEMPRE con un unico objeto JSON (nada de texto antes o despues), con esta forma exacta:
 {
@@ -30,6 +30,7 @@ Reglas:
 - Cada entidad debe tener exactamente un atributo con primaryKey=true.
 - Modelá las relaciones entre entidades usando foreignKey (apuntando al nombre de la entidad y atributo referenciados), no como texto libre.
 - El modelo tiene que ser coherente con los usuarios objetivo, las funcionalidades dentro del alcance del MVP y el recorrido principal descritos abajo. No incluyas entidades para funcionalidades que estan explicitamente fuera del alcance del MVP.
+- Si hay mas de un tipo de usuario objetivo y se distinguen por PERMISOS en vez de por datos propios distintos (ej. "Dueño" y "Trabajador" usan las mismas entidades, solo con distinto nivel de acceso), NO crees una entidad por cada uno: modelalos con un unico atributo de rol (ej. "role") en la entidad de usuario que corresponda, y escribí los nombres EXACTOS de esos tipos de usuario como texto dentro de su "type" (ej. "type": "enum: dueño | trabajador") - un chequeo automatico de consistencia busca esos nombres como texto literal en el modelo, la API y las pantallas, asi que un tipo generico como "string" o "enum" sin los valores puestos no alcanza aunque el campo exista.
 - No agregues texto fuera del JSON.`;
 
 function buildDataModelUserContent({ problemSummary, targetUsers, mvpScope, userJourney }) {

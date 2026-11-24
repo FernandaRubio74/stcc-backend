@@ -5,14 +5,13 @@
 jest.mock('../../src/modules/ai/ai.service');
 
 const request = require('supertest');
-const jwt = require('jsonwebtoken');
+const { generateSessionToken } = require('../../src/modules/auth/token.service');
 const app = require('../../src/app');
-const env = require('../../src/config/env');
 const prisma = require('../../src/database/client');
 const aiService = require('../../src/modules/ai/ai.service');
 
 function tokenDe(userId, email = 'x@ideator.com') {
-  return jwt.sign({ sub: userId, email }, env.jwt.secret, { expiresIn: '1d' });
+  return generateSessionToken({ id: userId, email });
 }
 
 async function cleanDatabase() {
@@ -83,6 +82,81 @@ describe('POST /projects/:projectId/data-model/generate', () => {
     expect(res.status).toBe(201);
     expect(res.body.status).toBe('DRAFT');
     expect(res.body.entities).toEqual(VALID_ENTITIES);
+  });
+});
+
+describe('POST /projects/:projectId/data-model/refine', () => {
+  test('responde 409 si todavia no hay ningun modelo generado para ajustar', async () => {
+    const owner = await crearUsuario('owner-refine1@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+    await prisma.projectDefinition.create({
+      data: { projectId: project.id, problemSummary: 'resumen', targetUsers: [{ label: 'cliente', description: 'd' }] },
+    });
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/data-model/refine`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ instruction: 'Agrega una entidad Proveedor' });
+
+    expect(res.status).toBe(409);
+  });
+
+  test('aplica la instruccion sobre el DRAFT existente (chatbot transversal)', async () => {
+    const owner = await crearUsuario('owner-refine2@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+    await prisma.projectDefinition.create({
+      data: { projectId: project.id, problemSummary: 'resumen', targetUsers: [{ label: 'cliente', description: 'd' }] },
+    });
+    aiService.requestStructuredJson.mockResolvedValue({ entities: VALID_ENTITIES });
+    await request(app)
+      .post(`/projects/${project.id}/data-model/generate`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`);
+
+    const ENTITIES_CON_PROVEEDOR = [
+      ...VALID_ENTITIES,
+      {
+        name: 'Proveedor',
+        attributes: [{ name: 'id', type: 'uuid', primaryKey: true, unique: false, nullable: false, foreignKey: null }],
+        indexes: [],
+      },
+    ];
+    aiService.requestStructuredJson.mockResolvedValue({ entities: ENTITIES_CON_PROVEEDOR });
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/data-model/refine`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ instruction: 'Agrega una entidad Proveedor' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.entities).toEqual(ENTITIES_CON_PROVEEDOR);
+    // Sigue siendo el mismo DRAFT (version 1), no crea una version nueva.
+    expect(res.body.versionNumber).toBe(1);
+  });
+
+  test('un viewer no puede ajustar con IA (403)', async () => {
+    const owner = await crearUsuario('owner-refine3@ideator.com');
+    const viewer = await crearUsuario('viewer-refine3@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+    await prisma.projectMember.create({ data: { projectId: project.id, userId: viewer.id, role: 'viewer' } });
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/data-model/refine`)
+      .set('Authorization', `Bearer ${tokenDe(viewer.id)}`)
+      .send({ instruction: 'Agrega una entidad Proveedor' });
+
+    expect(res.status).toBe(403);
+  });
+
+  test('responde 400 si la instruccion es demasiado corta', async () => {
+    const owner = await crearUsuario('owner-refine4@ideator.com');
+    const project = await crearProyecto(tokenDe(owner.id));
+
+    const res = await request(app)
+      .post(`/projects/${project.id}/data-model/refine`)
+      .set('Authorization', `Bearer ${tokenDe(owner.id)}`)
+      .send({ instruction: 'x' });
+
+    expect(res.status).toBe(400);
   });
 });
 

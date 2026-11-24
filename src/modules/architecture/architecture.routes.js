@@ -17,7 +17,14 @@ router.use(requireAuth);
 
 router.get('/:projectId/architecture/catalog', requireProjectMembership, getCatalogController);
 router.get('/:projectId/architecture', requireProjectMembership, getArchitectureController);
-router.post('/:projectId/architecture/recommend', requireProjectMembership, recommendArchitectureController);
+// Pedir una recomendacion dispara una llamada de IA en nombre del
+// proyecto: es "generar", no leer (hallazgo H-01 de la revision transversal).
+router.post(
+  '/:projectId/architecture/recommend',
+  requireProjectMembership,
+  requireRole(['owner', 'editor']),
+  recommendArchitectureController
+);
 
 // Confirmar/elegir arquitectura es una decision tecnica definitiva del
 // proyecto: mismo criterio que aprobar el modelo de datos o la API (owner).

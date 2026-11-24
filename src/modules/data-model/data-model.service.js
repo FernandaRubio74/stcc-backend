@@ -18,8 +18,25 @@ const defaultAiService = require('../ai/ai.service');
 const { generateMermaidDiagram } = require('./mermaid');
 const { aiDataModelResponseSchema, entitiesSchema } = require('./entity.schema');
 const { DATA_MODEL_SYSTEM_PROMPT, buildDataModelUserContent } = require('./prompts');
-const { InsufficientDefinitionError, DraftNotFoundError, NoApprovedVersionError } = require('./data-model.errors');
+const { buildRefineUserContent } = require('../ai/refinePrompt');
+const {
+  InsufficientDefinitionError,
+  DraftNotFoundError,
+  NoApprovedVersionError,
+  NoCurrentContentError,
+} = require('./data-model.errors');
 
+/**
+ * El diagrama se vuelve a derivar de `entities` al leer, en vez de devolver
+ * el texto que quedo guardado en la fila.
+ *
+ * Es 100% derivable del modelo (nunca lo escribe la IA ni el usuario), y de
+ * esta forma una version guardada con un diagrama invalido se sana sola.
+ * Hizo falta por un bug real: un tipo de atributo con espacios o dos puntos
+ * (ej. "enum: Emprendedores / Dueños de negocios") rompia el `erDiagram`
+ * entero, y arreglar solo el generador dejaba rotas para siempre las
+ * versiones ya persistidas.
+ */
 function serializeVersion(version) {
   if (!version) return null;
   return {
@@ -27,7 +44,7 @@ function serializeVersion(version) {
     versionNumber: version.versionNumber,
     status: version.status,
     entities: version.entities,
-    diagram: version.diagram,
+    diagram: generateMermaidDiagram(version.entities || []),
     createdAt: version.createdAt,
     createdById: version.createdById,
     approvedAt: version.approvedAt,
@@ -81,6 +98,41 @@ async function generateDataModel(projectId, userId, deps = {}) {
   const { entities } = await ai.requestStructuredJson({
     systemPrompt: DATA_MODEL_SYSTEM_PROMPT,
     userContent: buildDataModelUserContent(definition),
+    schema: aiDataModelResponseSchema,
+    maxOutputTokens: 16384,
+  });
+
+  return persistDraft(prismaClient, projectId, userId, entities);
+}
+
+/**
+ * "Ajustar con IA" (chatbot transversal): aplica una instruccion en texto
+ * libre sobre el DRAFT/APPROVED vigente, sin volver a derivar todo desde
+ * cero a partir de la definicion. Pisa el mismo DRAFT (o crea uno nuevo si
+ * el ultimo esta APPROVED) con el mismo invariante que generate/update.
+ */
+async function refineDataModel(projectId, userId, instruction, deps = {}) {
+  const prismaClient = deps.prisma || defaultPrisma;
+  const ai = deps.ai || defaultAiService;
+
+  const definition = await prismaClient.projectDefinition.findUnique({ where: { projectId } });
+  assertDefinitionIsUsable(definition);
+
+  const state = await getDataModelState(projectId, deps);
+  const current = state.draft ?? state.approved;
+  if (!current) {
+    throw new NoCurrentContentError(
+      'Todavia no hay un modelo de datos generado para ajustar - genera uno primero'
+    );
+  }
+
+  const { entities } = await ai.requestStructuredJson({
+    systemPrompt: DATA_MODEL_SYSTEM_PROMPT,
+    userContent: buildRefineUserContent(
+      buildDataModelUserContent(definition),
+      { entities: current.entities },
+      instruction
+    ),
     schema: aiDataModelResponseSchema,
     maxOutputTokens: 16384,
   });
@@ -151,6 +203,7 @@ async function getApprovedVersionOrThrow(projectId, deps = {}) {
 module.exports = {
   getDataModelState,
   generateDataModel,
+  refineDataModel,
   updateEntities,
   approveVersion,
   getApprovedVersionOrThrow,

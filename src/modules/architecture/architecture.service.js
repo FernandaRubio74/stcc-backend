@@ -37,8 +37,13 @@ async function getArchitectureState(projectId, deps = {}) {
   return serialize(row);
 }
 
-/** T-028.2 - La IA elige entre el catalogo fijo y justifica la eleccion. */
-async function recommendArchitecture(projectId, _userId, deps = {}) {
+/**
+ * T-028.2 - La IA elige entre el catalogo fijo y justifica la eleccion.
+ * `instruction` (chatbot transversal): preferencia en texto libre de la
+ * persona (ej. "prefiero algo mas simple") que pesa por encima de la
+ * heuristica por defecto - la misma recomendacion de siempre si se omite.
+ */
+async function recommendArchitecture(projectId, _userId, deps = {}, instruction) {
   const prismaClient = deps.prisma || defaultPrisma;
   const ai = deps.ai || defaultAiService;
 
@@ -59,6 +64,7 @@ async function recommendArchitecture(projectId, _userId, deps = {}) {
       entityNames: dataModel.entities.map((entity) => entity.name),
       endpointCount: apiSpecCount?.endpoints?.length ?? 0,
       catalog: ARCHITECTURE_CATALOG,
+      instruction,
     }),
     schema: aiArchitectureRecommendationSchema,
     maxOutputTokens: 16384,

@@ -4,7 +4,11 @@
  * del proveedor.
  */
 const { z } = require('zod');
-const { requestStructuredTurn, requestStructuredJson } = require('../../src/modules/ai/ai.service');
+const {
+  requestStructuredTurn,
+  requestStructuredJson,
+  requestSuggestions,
+} = require('../../src/modules/ai/ai.service');
 const { AiResponseValidationError } = require('../../src/modules/ai/ai.errors');
 
 function fetchReturning(content) {
@@ -16,6 +20,7 @@ function fetchReturning(content) {
 }
 
 const DEPS = {
+  provider: 'azure',
   endpoint: 'https://fake.openai.azure.com/openai/v1',
   apiKey: 'fake-key',
   deployment: 'gpt-5',
@@ -113,6 +118,44 @@ describe('requestStructuredJson', () => {
         { systemPrompt: 's', userContent: 'u', schema },
         { ...DEPS, fetch: fetchReturning(content) }
       )
+    ).rejects.toThrow(AiResponseValidationError);
+  });
+});
+
+describe('requestSuggestions', () => {
+  test('parsea y valida un array de sugerencias', async () => {
+    const content = JSON.stringify({ suggestions: ['Opción A', 'Opción B'] });
+
+    const result = await requestSuggestions(
+      { systemPrompt: 's', userContent: 'u' },
+      { ...DEPS, fetch: fetchReturning(content) }
+    );
+
+    expect(result).toEqual(['Opción A', 'Opción B']);
+  });
+
+  test('un array vacio es una respuesta valida (el agente puede no tener nada razonable para proponer)', async () => {
+    const content = JSON.stringify({ suggestions: [] });
+
+    const result = await requestSuggestions(
+      { systemPrompt: 's', userContent: 'u' },
+      { ...DEPS, fetch: fetchReturning(content) }
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  test('lanza AiResponseValidationError si el contenido no es JSON', async () => {
+    await expect(
+      requestSuggestions({ systemPrompt: 's', userContent: 'u' }, { ...DEPS, fetch: fetchReturning('no es json') })
+    ).rejects.toThrow(AiResponseValidationError);
+  });
+
+  test('lanza AiResponseValidationError si "suggestions" no es un array de strings', async () => {
+    const content = JSON.stringify({ suggestions: 'no es un array' });
+
+    await expect(
+      requestSuggestions({ systemPrompt: 's', userContent: 'u' }, { ...DEPS, fetch: fetchReturning(content) })
     ).rejects.toThrow(AiResponseValidationError);
   });
 });

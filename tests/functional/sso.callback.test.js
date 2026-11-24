@@ -25,18 +25,15 @@ jest.mock('../../src/database/client', () => ({
   },
 }));
 
-const env = require('../../src/config/env');
 const { googleOAuthClient } = require('../../src/config/googleOAuth');
 const prisma = require('../../src/database/client');
 const app = require('../../src/app');
 
 describe('GET /auth/sso/callback (endpoint real, proveedor Google mockeado)', () => {
-  const originalSecret = env.jwt.secret;
   let server;
   let baseUrl;
 
   beforeAll((done) => {
-    env.jwt.secret = 'test-secret';
     server = app.listen(0, () => {
       baseUrl = `http://127.0.0.1:${server.address().port}`;
       done();
@@ -44,7 +41,6 @@ describe('GET /auth/sso/callback (endpoint real, proveedor Google mockeado)', ()
   });
 
   afterAll((done) => {
-    env.jwt.secret = originalSecret;
     server.close(done);
   });
 

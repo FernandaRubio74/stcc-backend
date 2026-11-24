@@ -4,7 +4,7 @@
  */
 const { z } = require('zod');
 
-const ARCHITECTURE_SYSTEM_PROMPT = `Sos el asistente de Ideator. Tu tarea es recomendar, de un catalogo FIJO de escenarios de arquitectura tecnologica, el mas apropiado para el producto definido, y justificar tu eleccion.
+const ARCHITECTURE_SYSTEM_PROMPT = `Sos el asistente de GENIAL. Tu tarea es recomendar, de un catalogo FIJO de escenarios de arquitectura tecnologica, el mas apropiado para el producto definido, y justificar tu eleccion.
 
 Respondé SIEMPRE con un unico objeto JSON (nada de texto antes o despues), con esta forma exacta:
 {
@@ -22,11 +22,11 @@ const aiArchitectureRecommendationSchema = z.object({
   justification: z.string().min(1),
 });
 
-function buildArchitectureUserContent({ problemSummary, mvpScope, entityNames, endpointCount, catalog }) {
+function buildArchitectureUserContent({ problemSummary, mvpScope, entityNames, endpointCount, catalog, instruction }) {
   const catalogText = catalog.map((scenario) => `- ${scenario.id} (${scenario.name}): ${scenario.summary}`).join('\n');
   const inScopeText = (mvpScope?.in || []).map((f) => `- ${f}`).join('\n') || '(no especificado)';
 
-  return `Catalogo de arquitecturas disponibles:
+  const base = `Catalogo de arquitecturas disponibles:
 ${catalogText}
 
 Problema y contexto del proyecto:
@@ -37,6 +37,16 @@ ${inScopeText}
 
 Entidades del modelo de datos aprobado: ${entityNames.join(', ') || '(ninguna)'}
 Cantidad de endpoints en la especificacion de API aprobada: ${endpointCount}`;
+
+  // "Ajustar con IA" (chatbot transversal): una instruccion en texto libre
+  // de la persona (ej. "prefiero algo mas simple, sin microservicios") que
+  // tiene que pesar en la eleccion, por encima de la heuristica por
+  // defecto basada solo en tamaño del modelo/API.
+  if (!instruction) return base;
+  return `${base}
+
+Preferencia explicita de la persona para esta recomendacion (tenela en cuenta por encima de la heuristica por defecto):
+${instruction}`;
 }
 
 module.exports = { ARCHITECTURE_SYSTEM_PROMPT, aiArchitectureRecommendationSchema, buildArchitectureUserContent };

@@ -1,7 +1,7 @@
 /**
  * T-028.1/T-029.1-3 - Catalogo fijo de escenarios de arquitectura. A
  * diferencia de entities/endpoints/screens, esto NO lo genera la IA: es
- * documentacion tecnica de Ideator, y la IA solo elige entre estas
+ * documentacion tecnica de GENIAL, y la IA solo elige entre estas
  * opciones (ver prompts.js). El 5to escenario (monolito-colas-eventos) se
  * agrego en US-029, que tambien exigio documentar comunicacion,
  * observabilidad y autenticacion/SSO/autorizacion para todo el catalogo.

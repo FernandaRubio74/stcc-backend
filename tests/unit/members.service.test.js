@@ -9,15 +9,16 @@
  */
 
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 const projectsService = require('../../src/modules/projects/projects.service');
 const membersService = require('../../src/modules/projects/members.service');
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const UUID_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
 
-const prisma = new PrismaClient({
+const prisma = withFieldEncryption(new PrismaClient({
   datasources: { db: { url: TEST_DB_URL } },
-});
+}));
 
 async function cleanDatabase() {
   await prisma.projectMember.deleteMany({});

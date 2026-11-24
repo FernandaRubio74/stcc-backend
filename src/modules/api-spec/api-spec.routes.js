@@ -4,9 +4,11 @@ const { requireAuth } = require('../../common/middlewares/auth.middleware');
 const { requireProjectMembership } = require('../../common/middlewares/project-member.middleware');
 const { requireRole } = require('../../common/middlewares/require-role.middleware');
 const { updateEndpointsSchema } = require('../../common/dto/api-spec.dto');
+const { refineInstructionSchema } = require('../../common/dto/refine.dto');
 const {
   getApiSpecController,
   generateApiSpecController,
+  refineApiSpecController,
   updateEndpointsController,
   approveVersionController,
 } = require('./api-spec.controller');
@@ -19,7 +21,22 @@ router.use(requireAuth);
 // owner/editor edita a mano, y solo owner aprueba.
 router.get('/:projectId/api-spec', requireProjectMembership, getApiSpecController);
 
-router.post('/:projectId/api-spec/generate', requireProjectMembership, generateApiSpecController);
+// Generar sobrescribe el borrador vigente: exige el mismo rol que editar a
+// mano (hallazgo H-01 de la revision transversal).
+router.post(
+  '/:projectId/api-spec/generate',
+  requireProjectMembership,
+  requireRole(['owner', 'editor']),
+  generateApiSpecController
+);
+
+router.post(
+  '/:projectId/api-spec/refine',
+  requireProjectMembership,
+  requireRole(['owner', 'editor']),
+  validate(refineInstructionSchema),
+  refineApiSpecController
+);
 
 router.patch(
   '/:projectId/api-spec/endpoints',

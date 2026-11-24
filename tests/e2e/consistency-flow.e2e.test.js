@@ -11,9 +11,10 @@
  */
 const request = require('supertest');
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-const prisma = new PrismaClient();
+const prisma = withFieldEncryption(new PrismaClient());
 
 async function cleanDatabase() {
   await prisma.apiSpecVersion.deleteMany({});

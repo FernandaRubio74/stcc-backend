@@ -7,6 +7,7 @@
  * Corre contra Postgres real; solo se mockea la IA.
  */
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 const projectsService = require('../../src/modules/projects/projects.service');
 const dataModelService = require('../../src/modules/data-model/data-model.service');
 const apiSpecService = require('../../src/modules/api-spec/api-spec.service');
@@ -15,7 +16,7 @@ const { NoApprovedVersionError } = require('../../src/modules/data-model/data-mo
 const { AiResponseValidationError } = require('../../src/modules/ai/ai.errors');
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
-const prisma = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
+const prisma = withFieldEncryption(new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } }));
 
 async function cleanDatabase() {
   await prisma.apiSpecVersion.deleteMany({});

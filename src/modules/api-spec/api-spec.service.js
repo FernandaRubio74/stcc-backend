@@ -15,7 +15,8 @@ const dataModelService = require('../data-model/data-model.service');
 const { aiApiSpecResponseSchema, endpointsSchema } = require('./endpoint.schema');
 const { API_SPEC_SYSTEM_PROMPT, buildApiSpecUserContent } = require('./prompts');
 const { validateEndpointsAgainstDataModel } = require('./coherence');
-const { DraftNotFoundError } = require('./api-spec.errors');
+const { buildRefineUserContent } = require('../ai/refinePrompt');
+const { DraftNotFoundError, NoCurrentContentError } = require('./api-spec.errors');
 
 function serializeVersion(version) {
   if (!version) return null;
@@ -95,6 +96,35 @@ async function generateApiSpec(projectId, userId, deps = {}) {
   return persistDraft(prismaClient, projectId, userId, endpoints);
 }
 
+/** "Ajustar con IA" (chatbot transversal) - ver data-model.service.js:refineDataModel para el mismo patron. */
+async function refineApiSpec(projectId, userId, instruction, deps = {}) {
+  const prismaClient = deps.prisma || defaultPrisma;
+  const ai = deps.ai || defaultAiService;
+
+  const dataModel = await dataModelService.getApprovedVersionOrThrow(projectId, deps);
+  const state = await getApiSpecState(projectId, deps);
+  const current = state.draft ?? state.approved;
+  if (!current) {
+    throw new NoCurrentContentError(
+      'Todavia no hay una especificacion de API generada para ajustar - genera una primero'
+    );
+  }
+
+  const { endpoints } = await ai.requestStructuredJson({
+    systemPrompt: API_SPEC_SYSTEM_PROMPT,
+    userContent: buildRefineUserContent(
+      buildApiSpecUserContent(dataModel.entities),
+      { endpoints: current.endpoints },
+      instruction
+    ),
+    schema: aiApiSpecResponseSchema,
+    maxOutputTokens: 16384,
+  });
+
+  validateEndpointsAgainstDataModel(endpoints, dataModel.entities);
+  return persistDraft(prismaClient, projectId, userId, endpoints);
+}
+
 /** T-024.1 - Edicion manual del DRAFT, revalidada contra el modelo de datos aprobado vigente. */
 async function updateEndpoints(projectId, userId, endpoints, deps = {}) {
   const prismaClient = deps.prisma || defaultPrisma;
@@ -125,6 +155,7 @@ async function approveVersion(projectId, userId, deps = {}) {
 module.exports = {
   getApiSpecState,
   generateApiSpec,
+  refineApiSpec,
   updateEndpoints,
   approveVersion,
 };

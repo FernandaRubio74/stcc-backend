@@ -10,13 +10,14 @@
  */
 
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 const projectsService = require('../../src/modules/projects/projects.service');
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
-const prisma = new PrismaClient({
+const prisma = withFieldEncryption(new PrismaClient({
   datasources: { db: { url: TEST_DB_URL } },
-});
+}));
 
 async function cleanDatabase() {
   await prisma.projectMember.deleteMany({});
@@ -183,6 +184,31 @@ describe('listProjectsForUser', () => {
     const projects = await projectsService.listProjectsForUser(viewer.id);
 
     expect(projects.map((p) => p.id)).toContain(project.id);
+  });
+
+  test('devuelve el rol propio de cada usuario en el mismo proyecto, no un rol compartido', async () => {
+    const owner = await crearUsuario('owner-rol@ideator.com');
+    const viewer = await crearUsuario('viewer-rol@ideator.com');
+    const project = await projectsService.createProject({ name: 'Con roles', userId: owner.id });
+    await prisma.projectMember.create({ data: { userId: viewer.id, projectId: project.id, role: 'viewer' } });
+
+    const [ownerProjects, viewerProjects] = await Promise.all([
+      projectsService.listProjectsForUser(owner.id),
+      projectsService.listProjectsForUser(viewer.id),
+    ]);
+
+    expect(ownerProjects.find((p) => p.id === project.id).role).toBe('owner');
+    expect(viewerProjects.find((p) => p.id === project.id).role).toBe('viewer');
+  });
+
+  test('un proyecto recien creado tiene progreso 0/6 (US-065)', async () => {
+    const user = await crearUsuario('progreso@ideator.com');
+    const project = await projectsService.createProject({ name: 'Nuevo', userId: user.id });
+
+    const [listado] = await projectsService.listProjectsForUser(user.id);
+
+    expect(listado.id).toBe(project.id);
+    expect(listado.progress).toEqual({ completedStages: 0, totalStages: 6 });
   });
 });
 

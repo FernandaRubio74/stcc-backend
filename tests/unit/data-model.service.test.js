@@ -6,6 +6,7 @@
  * Corre contra Postgres real; solo se mockea la IA.
  */
 const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
 const projectsService = require('../../src/modules/projects/projects.service');
 const dataModelService = require('../../src/modules/data-model/data-model.service');
 const {
@@ -16,7 +17,7 @@ const {
 const { AiResponseValidationError } = require('../../src/modules/ai/ai.errors');
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
-const prisma = new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } });
+const prisma = withFieldEncryption(new PrismaClient({ datasources: { db: { url: TEST_DB_URL } } }));
 
 async function cleanDatabase() {
   await prisma.dataModelVersion.deleteMany({});
@@ -199,5 +200,82 @@ describe('getApprovedVersionOrThrow', () => {
     const approved = await dataModelService.getApprovedVersionOrThrow(project.id);
 
     expect(approved.status).toBe('APPROVED');
+  });
+});
+
+/**
+ * Bug reportado (segunda vuelta del mismo error de Mermaid): el diagrama se
+ * PERSISTE en la fila de la version, asi que arreglar el generador solo
+ * arregla los diagramas nuevos - una version guardada antes del fix sigue
+ * devolviendo el texto roto para siempre y la pantalla muestra
+ * "Parse error ... Expecting 'ATTRIBUTE_WORD', got ':'".
+ *
+ * El diagrama es 100% derivable de `entities` (nunca lo escribe la IA ni el
+ * usuario), asi que se vuelve a derivar al leer: una fila vieja se sana
+ * sola, sin migracion.
+ */
+describe('diagrama derivado al leer (sana versiones viejas con el diagrama roto)', () => {
+  const ROLE_ENTITIES = [
+    {
+      name: 'Usuario',
+      attributes: [
+        { name: 'id', type: 'uuid', primaryKey: true, unique: true, nullable: false, foreignKey: null },
+        { name: 'email', type: 'string', primaryKey: false, unique: true, nullable: false, foreignKey: null },
+        { name: 'rol', type: 'enum: Emprendedores / Dueños de negocios | Diseñadores graficos freelancers', primaryKey: false, unique: false, nullable: false, foreignKey: null },
+      ],
+      indexes: [],
+    },
+  ];
+
+  test('no devuelve el diagrama roto guardado: lo re-deriva de las entidades', async () => {
+    const owner = await prisma.user.create({ data: { email: 'diagrama-roto@genial.com', fullName: 'O' } });
+    const project = await projectsService.createProject({ name: 'Proyecto con diagrama viejo', userId: owner.id });
+    await prisma.dataModelVersion.create({
+      data: {
+        projectId: project.id,
+        versionNumber: 1,
+        status: 'APPROVED',
+        entities: ROLE_ENTITIES,
+        // Exactamente lo que quedo guardado antes del fix del generador.
+        diagram: 'erDiagram\n  USUARIO {\n    uuid id PK\n    string email UK\n    enum: Emprendedores / Dueños de negocios | Diseñadores graficos freelancers rol\n  }',
+        createdById: owner.id,
+        approvedById: owner.id,
+        approvedAt: new Date(),
+      },
+    });
+
+    const state = await dataModelService.getDataModelState(project.id);
+
+    // El texto completo puede seguir apareciendo, pero SOLO dentro del
+    // comentario entre comillas; lo que no puede es estar suelto como tipo.
+    expect(state.approved.diagram).toContain('enum rol');
+    state.approved.diagram
+      .split('\n')
+      .filter((line) => /^ {4}\S/.test(line))
+      .forEach((line) => {
+        const [type, name] = line.trim().split(/\s+/);
+        expect(type).toMatch(/^[A-Za-z0-9_-]+$/);
+        expect(name).toMatch(/^[A-Za-z0-9_-]+$/);
+      });
+  });
+
+  test('conserva el detalle del tipo como comentario legible', async () => {
+    const owner = await prisma.user.create({ data: { email: 'diagrama-roto2@genial.com', fullName: 'O' } });
+    const project = await projectsService.createProject({ name: 'Proyecto con diagrama viejo 2', userId: owner.id });
+    await prisma.dataModelVersion.create({
+      data: {
+        projectId: project.id,
+        versionNumber: 1,
+        status: 'DRAFT',
+        entities: ROLE_ENTITIES,
+        diagram: 'erDiagram roto',
+        createdById: owner.id,
+      },
+    });
+
+    const state = await dataModelService.getDataModelState(project.id);
+
+    expect(state.draft.diagram).toContain('enum rol');
+    expect(state.draft.diagram).toContain('"enum: Emprendedores / Dueños de negocios | Diseñadores graficos freelancers"');
   });
 });

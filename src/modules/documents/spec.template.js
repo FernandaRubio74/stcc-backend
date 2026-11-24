@@ -6,7 +6,7 @@
  * autocontenido: una IA externa tiene que poder implementar el producto sin
  * acceso a la conversacion que lo origino.
  *
- * Las 8 secciones son fijas y siempre se emiten; si alguna no tuviera datos
+ * Las 10 secciones son fijas y siempre se emiten; si alguna no tuviera datos
  * se deja constancia explicita en vez de omitirla, porque el documento se usa
  * como contrato de entrada de otra herramienta y su estructura no puede
  * variar de un proyecto a otro.
@@ -17,6 +17,9 @@
  * que quedo fuera del MVP). Es informacion que la IA externa necesita para
  * implementar sin volver a preguntar.
  */
+
+const { renderScreenWireframe } = require('../screens/wireframe');
+const { generateSeedData } = require('../data-model/seedData');
 
 const EMPTY = '_No se registro informacion para esta seccion._';
 
@@ -84,7 +87,7 @@ function buildHeader({ project, versionNumber, generatedAt, dataModel, apiSpec }
     '',
     meta,
     '',
-    'Documento generado por Ideator a partir de las etapas ya aprobadas del proyecto.',
+    'Documento generado por GENIAL a partir de las etapas ya aprobadas del proyecto.',
     'Es autocontenido: describe el producto completo y no requiere consultar la conversacion',
     'que lo origino ni ningun otro contexto previo.',
     '',
@@ -285,6 +288,11 @@ function buildApiSection(apiSpec) {
   return section('6. Endpoints de la API', summary, '', ...endpoints.map((endpoint) => buildEndpointBlock(endpoint)));
 }
 
+function describeScreenElement(element) {
+  const ref = element.dataField ? ` — campo \`${element.dataField}\`` : element.endpointRef ? ` — llama a \`${element.endpointRef}\`` : '';
+  return `**[${element.type}]** ${element.label}${ref}`;
+}
+
 function buildScreenBlock(screen) {
   return [
     `### Pantalla: ${screen.name}`,
@@ -293,9 +301,15 @@ function buildScreenBlock(screen) {
     '',
     `Visible para los roles: ${(screen.visibleToRoles || []).join(', ') || 'no especificado'}.`,
     '',
-    '**Elementos principales**',
+    '**Wireframe (baja fidelidad, texto plano)**',
     '',
-    bulletList(screen.mainElements, '_Sin elementos declarados._'),
+    '```text',
+    renderScreenWireframe(screen),
+    '```',
+    '',
+    '**Elementos principales** (campo/endpoint real que usa cada uno, si aplica)',
+    '',
+    bulletList((screen.mainElements || []).map(describeScreenElement), '_Sin elementos declarados._'),
     '',
   ].join('\n');
 }
@@ -312,7 +326,9 @@ function buildInterfaceSection(screenMap) {
     ),
     '',
     ...screens.map((screen) => buildScreenBlock(screen)),
-    '### Navegacion entre pantallas',
+    '### Navegacion entre pantallas (prototipo clicable)',
+    '',
+    'La navegacion de abajo es el prototipo clicable: desde cada pantalla, la accion de la columna "Accion" lleva a la pantalla de "Hacia". En la app, esto mismo se recorre en vivo sin descargar nada (modo prototipo).',
     '',
     table(['Desde', 'Hacia', 'Accion'], navigation, '_No se registraron transiciones entre pantallas._'),
     '',
@@ -342,6 +358,167 @@ function buildArchitectureSection({ architecture, catalogEntry }) {
   );
 }
 
+function buildStrategySubsection(strategy) {
+  const risks = (strategy?.riskPriorities || []).map((r) => [r.item, r.risk, r.rationale]);
+  return [
+    '### Estrategia',
+    '',
+    '**Dentro del alcance de pruebas**',
+    '',
+    bulletList(strategy?.inScope, '_No se registro que esta dentro del alcance de pruebas._'),
+    '',
+    '**Fuera del alcance de pruebas**',
+    '',
+    bulletList(strategy?.outOfScope, '_No se registro ninguna exclusion explicita._'),
+    '',
+    '**Riesgos priorizados**',
+    '',
+    table(['Item', 'Riesgo', 'Justificacion'], risks, '_No se registraron riesgos priorizados._'),
+  ].join('\n');
+}
+
+function buildAcceptanceCasesSubsection(cases) {
+  const rows = (cases || []).map((c) => [c.id, c.ruleRef, c.given, c.when, c.then]);
+  return [
+    '### Casos de aceptacion (Dado / Cuando / Entonces)',
+    '',
+    table(['Id', 'Regla/requisito', 'Dado', 'Cuando', 'Entonces'], rows, '_No se registraron casos de aceptacion._'),
+  ].join('\n');
+}
+
+function buildEndpointCasesSubsection(cases) {
+  const rows = (cases || []).map((c) => [c.endpointRef, c.happyPath, c.invalidData, c.unauthorized]);
+  return [
+    '### Casos por endpoint',
+    '',
+    table(
+      ['Endpoint', 'Camino feliz', 'Datos invalidos', 'Acceso no autorizado'],
+      rows,
+      '_No se registraron casos por endpoint._'
+    ),
+  ].join('\n');
+}
+
+function buildScreenCasesSubsection(cases) {
+  const rows = (cases || []).map((c) => [c.screenRef, c.loading, c.empty, c.error]);
+  return [
+    '### Casos por pantalla',
+    '',
+    table(['Pantalla', 'Estado de carga', 'Estado vacio', 'Estado de error'], rows, '_No se registraron casos por pantalla._'),
+  ].join('\n');
+}
+
+function buildE2eFlowsSubsection(flows) {
+  if (!flows || flows.length === 0) {
+    return ['### Flujos de punta a punta', '', '_No se registraron flujos de punta a punta._'].join('\n');
+  }
+  const blocks = flows.map((flow) =>
+    [
+      `#### ${flow.name}`,
+      '',
+      numberedList(flow.steps),
+      '',
+      `Casos relacionados: ${(flow.relatedCaseIds || []).join(', ') || '(ninguno enlazado)'}`,
+      '',
+    ].join('\n')
+  );
+  return ['### Flujos de punta a punta', '', ...blocks].join('\n');
+}
+
+function buildSecurityCasesSubsection(cases) {
+  const rows = (cases || []).map((c) => [c.id, c.type, c.description]);
+  return [
+    '### Casos de seguridad',
+    '',
+    table(['Id', 'Tipo', 'Descripcion'], rows, '_No se registraron casos de seguridad._'),
+  ].join('\n');
+}
+
+function buildNegativeCasesSubsection(cases) {
+  const rows = (cases || []).map((c) => [c.id, c.description, c.expectedRejection]);
+  return [
+    '### Casos negativos (lo que el sistema debe rechazar)',
+    '',
+    table(['Id', 'Descripcion', 'Rechazo esperado'], rows, '_No se registraron casos negativos._'),
+  ].join('\n');
+}
+
+function buildUsabilitySubsection(cases) {
+  const rows = (cases || []).map((c) => [c.id, c.description]);
+  return [
+    '### Usabilidad y accesibilidad basica',
+    '',
+    table(['Id', 'Descripcion'], rows, '_No se registraron casos de usabilidad/accesibilidad._'),
+  ].join('\n');
+}
+
+function buildTestDataSubsection(testData) {
+  const rows = (testData || []).map((d) => [d.entity, d.environment, d.description]);
+  return [
+    '### Datos de prueba necesarios',
+    '',
+    table(['Entidad', 'Entorno', 'Descripcion'], rows, '_No se registraron necesidades de datos de prueba._'),
+  ].join('\n');
+}
+
+function buildTraceabilityMatrixSubsection(matrix) {
+  const rows = (matrix || []).map((entry) => [entry.requirementRef, (entry.caseIds || []).join(', ')]);
+  return [
+    '### Matriz de trazabilidad',
+    '',
+    table(['Requisito / regla', 'Casos que lo prueban'], rows, '_No se registro matriz de trazabilidad._'),
+  ].join('\n');
+}
+
+function buildTestPlanSection(testPlan) {
+  if (!testPlan) {
+    return section('9. Plan de pruebas', '_El proyecto todavia no tiene un plan de pruebas aprobado._');
+  }
+  return section(
+    '9. Plan de pruebas',
+    'Tipos de prueba: unitarias para las reglas de negocio, de integracion para la API contra la base',
+    'de datos, y de punta a punta para los recorridos de usuario descriptos abajo.',
+    '',
+    buildStrategySubsection(testPlan.strategy),
+    buildAcceptanceCasesSubsection(testPlan.acceptanceCases),
+    buildEndpointCasesSubsection(testPlan.endpointCases),
+    buildScreenCasesSubsection(testPlan.screenCases),
+    buildE2eFlowsSubsection(testPlan.e2eFlows),
+    buildSecurityCasesSubsection(testPlan.securityCases),
+    buildNegativeCasesSubsection(testPlan.negativeCases),
+    buildUsabilitySubsection(testPlan.usabilityCases),
+    buildTestDataSubsection(testPlan.testData),
+    buildTraceabilityMatrixSubsection(testPlan.traceabilityMatrix)
+  );
+}
+
+function buildSeedDataEntityBlock({ name, attributes, records }) {
+  const rows = records.map((record) => attributes.map((attribute) => record[attribute]));
+  return [`### ${name}`, '', table(attributes, rows), ''].join('\n');
+}
+
+/**
+ * Datos de ejemplo ("quemados") derivados del modelo de datos aprobado:
+ * pedido explicito para que la otra IA tenga, desde el arranque, con que
+ * probar el flujo sin tener que inventar sus propios datos. Se generan por
+ * codigo (ver data-model/seedData.js), nunca por IA, para no agregar una
+ * llamada mas al tiempo total del flujo.
+ */
+function buildSeedDataSection(dataModel) {
+  const entities = dataModel?.entities || [];
+  if (entities.length === 0) {
+    return section('10. Datos de ejemplo', '_El proyecto todavia no tiene un modelo de datos aprobado._');
+  }
+
+  const seedData = generateSeedData(entities);
+  return section(
+    '10. Datos de ejemplo',
+    'Registros sugeridos, coherentes con el modelo de datos y sus relaciones (las claves foraneas apuntan a registros reales de la tabla referenciada). Son un punto de partida para probar el flujo, no datos reales.',
+    '',
+    ...seedData.map(buildSeedDataEntityBlock)
+  );
+}
+
 /**
  * @param {object} context estado aprobado del proyecto + metadatos del documento
  * @returns {string} el documento Markdown completo
@@ -354,6 +531,7 @@ function buildSpecDocument({
   screenMap,
   architecture,
   catalogEntry,
+  testPlan,
   versionNumber,
   generatedAt,
 }) {
@@ -367,7 +545,9 @@ function buildSpecDocument({
     buildApiSection(apiSpec),
     buildInterfaceSection(screenMap),
     buildArchitectureSection({ architecture, catalogEntry }),
+    buildTestPlanSection(testPlan),
+    buildSeedDataSection(dataModel),
   ].join('\n');
 }
 
-module.exports = { buildSpecDocument };
+module.exports = { buildSpecDocument, deriveBusinessRules };
