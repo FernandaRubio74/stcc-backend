@@ -1,0 +1,60 @@
+# T-038.2 - Entorno completo de Ideator con un solo comando.
+#
+# El frontend se construye desde el repo hermano (../stcc-frontend): los dos
+# repos tienen que estar como carpetas hermanas del mismo directorio, que es
+# como esta organizado el workspace. Ver README ("Levantar el entorno completo
+# desde cero").
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: stcc_backend_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ideator
+      POSTGRES_PASSWORD: ideator
+      POSTGRES_DB: ideator_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - stcc_backend_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ideator -d ideator_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    container_name: stcc_backend_api
+    restart: unless-stopped
+    # Los secretos (JWT, credenciales de IA y SSO) vienen del .env local, que
+    # nunca se commitea. Ver .env.example.
+    env_file: .env
+    environment:
+      # Dentro de la red de compose la base se alcanza por el nombre del
+      # servicio y el puerto interno, no por el 5433 que se publica al host.
+      DATABASE_URL: postgresql://ideator:ideator@db:5432/ideator_db?schema=public
+      PORT: 3000
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../stcc-frontend
+      args:
+        # El navegador del usuario llama al backend publicado en el host.
+        VITE_API_BASE_URL: http://localhost:3000
+    container_name: stcc_frontend_web
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  stcc_backend_pg_data:

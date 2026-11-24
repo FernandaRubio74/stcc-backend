@@ -1,0 +1,133 @@
+<mxfile host="app.diagrams.net" agent="Claude" version="24.0.0">
+  <diagram name="ER - Modelo de datos inicial" id="er-ideator">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Titulo -->
+        <mxCell id="note1" value="Ideator - Modelo de datos inicial (User / Project / ProjectMember)&#10;Relacion N:M entre User y Project resuelta mediante ProjectMember" style="text;html=1;align=center;verticalAlign=middle;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="40" y="0" width="740" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== USER ===================== -->
+        <mxCell id="u_header" value="User (users)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="280" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="u_id" value="PK   id : UUID" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontStyle=4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_email" value="        email : VARCHAR(255)  UNIQUE, NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="96" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_pass" value="        password_hash : VARCHAR(255)  NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="122" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_name" value="        full_name : VARCHAR(150)  NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="148" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_authp" value="        auth_provider : VARCHAR(30)  NOT NULL DEFAULT 'local'" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="174" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_provid" value="        provider_id : VARCHAR(255)  NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_created_at" value="        created_at : TIMESTAMPTZ  NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="226" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_created_by" value="FK   created_by : UUID  NULL  -&gt; users.id" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="252" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_updated_at" value="        updated_at : TIMESTAMPTZ  NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="40" y="278" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="u_note" value="UNIQUE (auth_provider, provider_id)" style="text;html=1;align=left;fontSize=11;fontColor=#999999;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="304" width="280" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== PROJECT ===================== -->
+        <mxCell id="p_header" value="Project (projects)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=14;align=center;" vertex="1" parent="1">
+          <mxGeometry x="480" y="40" width="280" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p_id" value="PK   id : UUID" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontStyle=4;" vertex="1" parent="1">
+          <mxGeometry x="480" y="70" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p_name" value="        name : VARCHAR(150)  NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="96" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p_desc" value="        description : TEXT  NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="122" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p_priv" value="        is_private : BOOLEAN  NOT NULL DEFAULT true" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="480" y="148" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p_created_at" value="        created_at : TIMESTAMPTZ  NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="480" y="174" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p_created_by" value="FK   created_by : UUID  NOT NULL  -&gt; users.id" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="480" y="200" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p_updated_at" value="        updated_at : TIMESTAMPTZ  NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="480" y="226" width="280" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== PROJECT_MEMBER ===================== -->
+        <mxCell id="m_header" value="ProjectMember (project_members)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=14;align=center;" vertex="1" parent="1">
+          <mxGeometry x="240" y="420" width="320" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="m_id" value="PK   id : UUID" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontStyle=4;" vertex="1" parent="1">
+          <mxGeometry x="240" y="450" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="m_userid" value="FK   user_id : UUID  NOT NULL  -&gt; users.id" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="240" y="476" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="m_projid" value="FK   project_id : UUID  NOT NULL  -&gt; projects.id" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="240" y="502" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="m_role" value="        role : ENUM(owner, editor, viewer)  NOT NULL DEFAULT 'viewer'" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="240" y="528" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="m_created_at" value="        created_at : TIMESTAMPTZ  NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="240" y="554" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="m_created_by" value="FK   created_by : UUID  NULL  -&gt; users.id" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="240" y="580" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="m_updated_at" value="        updated_at : TIMESTAMPTZ  NOT NULL" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=6;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="240" y="606" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="m_note" value="UNIQUE (user_id, project_id)" style="text;html=1;align=left;fontSize=11;fontColor=#999999;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="240" y="632" width="320" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== RELACIONES ESTRUCTURALES (1:N) ===================== -->
+        <mxCell id="edge_user_member" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;startArrow=none;fontSize=12;fontStyle=1;strokeColor=#000000;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="u_id" target="m_userid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge_project_member" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;startArrow=none;fontSize=12;fontStyle=1;strokeColor=#000000;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p_id" target="m_projid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== RELACIONES DE AUDITORIA (N:1, punteadas) ===================== -->
+        <mxCell id="edge_project_createdby" value="N : 1 (creador)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=open;startArrow=none;fontSize=10;strokeColor=#999999;fontColor=#999999;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p_created_by" target="u_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge_member_createdby" value="N : 1 (agregado por, opcional)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=open;startArrow=none;fontSize=10;strokeColor=#999999;fontColor=#999999;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="m_created_by" target="u_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge_user_createdby" value="0..1 : N (auto-referencia)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=open;startArrow=none;fontSize=10;strokeColor=#999999;fontColor=#999999;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="u_created_by" target="u_id">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-40" y="265" />
+              <mxPoint x="-40" y="83" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

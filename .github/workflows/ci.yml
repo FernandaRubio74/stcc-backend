@@ -1,0 +1,266 @@
+﻿name: CI Backend
+
+on:
+  push:
+    branches: [main, develop]
+    # T-041.3: el tag de entrega (ej. v1.0.0) dispara el gate de release,
+    # distinto del gate de merge (job `e2e`, que corre en cada PR a develop).
+    tags: ['v*']
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideator
+          POSTGRES_PASSWORD: ideator
+          POSTGRES_DB: ideator_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ideator -d ideator_test_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: ideator
+      PGPASSWORD: ideator
+      PGDATABASE: ideator_test_db
+      DATABASE_URL: postgresql://ideator:ideator@localhost:5432/ideator_test_db?schema=public
+      JWT_SECRET: test_secret_solo_para_ci_no_usar_en_produccion
+      JWT_EXPIRES_IN: 1d
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Generate test RSA key pair
+        run: |
+          node <<'NODE'
+          const { generateKeyPairSync } = require('crypto');
+          const fs = require('fs');
+
+          const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+          });
+
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `JWT_RSA_PRIVATE_KEY<<EOF\n${privateKey}EOF\nJWT_RSA_PUBLIC_KEY<<EOF\n${publicKey}EOF\n`
+          );
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run generate
+
+      - name: Run migrations
+        run: npm run migrate
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideator
+          POSTGRES_PASSWORD: ideator
+          POSTGRES_DB: ideator_e2e_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ideator -d ideator_e2e_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: ideator
+      PGPASSWORD: ideator
+      PGDATABASE: ideator_e2e_db
+      DATABASE_URL: postgresql://ideator:ideator@localhost:5432/ideator_e2e_db?schema=public
+      JWT_SECRET: test_secret_solo_para_ci_no_usar_en_produccion
+      JWT_EXPIRES_IN: 1d
+      PORT: 3000
+      BASE_URL: http://localhost:3000
+      # T-026.1/T-026.3: la IA se reemplaza por un doble determinista a nivel
+      # de proveedor (tests/e2e/fakeAiProvider.js), no por un mock de modulo
+      # (el servidor real corre en otro proceso en este job). El gate de
+      # merge corre siempre con este doble, nunca contra la IA real.
+      AI_ENDPOINT: http://localhost:4010/openai/v1
+      AI_PROVIDER_API_KEY: ci-fake-key
+      AI_DEPLOYMENT: ci-fake-deployment
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Generate test RSA key pair
+        run: |
+          node <<'NODE'
+          const { generateKeyPairSync } = require('crypto');
+          const fs = require('fs');
+
+          const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+          });
+
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `JWT_RSA_PRIVATE_KEY<<EOF\n${privateKey}EOF\nJWT_RSA_PUBLIC_KEY<<EOF\n${publicKey}EOF\n`
+          );
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run generate
+
+      - name: Run migrations
+        run: npm run migrate
+
+      - name: Start fake AI provider in background
+        run: nohup node tests/e2e/fakeAiProvider.js > fake-ai.log 2>&1 &
+
+      - name: Start server in background
+        run: nohup node src/server.js > server.log 2>&1 &
+
+      - name: Wait for server to be ready
+        run: npx wait-on http://localhost:3000/health --timeout 30000
+
+      - name: Run E2E suite
+        run: npm run test:e2e
+
+      - name: Show server logs if E2E failed
+        if: failure()
+        run: cat server.log
+
+      - name: Show fake AI provider logs if E2E failed
+        if: failure()
+        run: cat fake-ai.log
+
+  # T-041.3 - Gate de RELEASE, distinto del gate de merge (`e2e` arriba):
+  # corre solo el recorrido completo (full-flow.e2e.test.js), no toda la
+  # suite E2E, y se dispara en un tag de version o en un PR hacia main (la
+  # rama de la que se corta cada release), nunca en cada PR a develop.
+  release-gate:
+    if: startsWith(github.ref, 'refs/tags/v') || github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideator
+          POSTGRES_PASSWORD: ideator
+          POSTGRES_DB: ideator_release_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ideator -d ideator_release_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: ideator
+      PGPASSWORD: ideator
+      PGDATABASE: ideator_release_db
+      DATABASE_URL: postgresql://ideator:ideator@localhost:5432/ideator_release_db?schema=public
+      JWT_SECRET: test_secret_solo_para_ci_no_usar_en_produccion
+      JWT_EXPIRES_IN: 1d
+      PORT: 3000
+      BASE_URL: http://localhost:3000
+      AI_ENDPOINT: http://localhost:4010/openai/v1
+      AI_PROVIDER_API_KEY: ci-fake-key
+      AI_DEPLOYMENT: ci-fake-deployment
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Generate test RSA key pair
+        run: |
+          node <<'NODE'
+          const { generateKeyPairSync } = require('crypto');
+          const fs = require('fs');
+
+          const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+          });
+
+          fs.appendFileSync(
+            process.env.GITHUB_ENV,
+            `JWT_RSA_PRIVATE_KEY<<EOF\n${privateKey}EOF\nJWT_RSA_PUBLIC_KEY<<EOF\n${publicKey}EOF\n`
+          );
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run generate
+
+      - name: Run migrations
+        run: npm run migrate
+
+      - name: Start fake AI provider in background
+        run: nohup node tests/e2e/fakeAiProvider.js > fake-ai.log 2>&1 &
+
+      - name: Start server in background
+        run: nohup node src/server.js > server.log 2>&1 &
+
+      - name: Wait for server to be ready
+        run: npx wait-on http://localhost:3000/health --timeout 30000
+
+      - name: Run full-flow E2E (release gate)
+        run: npx jest --config jest.e2e.config.js tests/e2e/full-flow.e2e.test.js
+
+      - name: Show server logs if release gate failed
+        if: failure()
+        run: cat server.log
+
+      - name: Show fake AI provider logs if release gate failed
+        if: failure()
+        run: cat fake-ai.log

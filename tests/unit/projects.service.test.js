@@ -1,0 +1,289 @@
+/**
+ * Tests del servicio de proyectos.
+ *
+ * El foco esta en la invariante que sostiene todo el modelo de autorizacion:
+ * **no puede existir un proyecto sin su membresia `owner`**. Si esa fila
+ * faltara, el guard de pertenencia (que resuelve el acceso unicamente via
+ * ProjectMember) dejaria al creador afuera de su propio proyecto con un 404.
+ *
+ * Corre contra Postgres real, siguiendo el patron de tests/unit/schema.test.js.
+ */
+
+const { PrismaClient } = require('@prisma/client');
+const { withFieldEncryption } = require('../../src/database/fieldEncryption');
+const projectsService = require('../../src/modules/projects/projects.service');
+
+const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+
+const prisma = withFieldEncryption(new PrismaClient({
+  datasources: { db: { url: TEST_DB_URL } },
+}));
+
+async function cleanDatabase() {
+  await prisma.projectMember.deleteMany({});
+  await prisma.project.deleteMany({});
+  await prisma.user.deleteMany({});
+}
+
+beforeEach(async () => {
+  await cleanDatabase();
+});
+
+afterAll(async () => {
+  await cleanDatabase();
+  await prisma.$disconnect();
+});
+
+function crearUsuario(email = 'creador@ideator.com') {
+  return prisma.user.create({ data: { email, fullName: 'Creador' } });
+}
+
+describe('createProject', () => {
+  test('crea el proyecto con los datos recibidos', async () => {
+    const user = await crearUsuario();
+
+    const project = await projectsService.createProject({
+      name: 'Ideator MVP',
+      description: 'Primer proyecto',
+      userId: user.id,
+    });
+
+    expect(project).toMatchObject({
+      name: 'Ideator MVP',
+      description: 'Primer proyecto',
+      createdById: user.id,
+      isPrivate: true, // privado por defecto
+    });
+    expect(project.id).toEqual(expect.any(String));
+  });
+
+  test('crea la membresia owner del creador en la misma operacion', async () => {
+    const user = await crearUsuario();
+
+    const project = await projectsService.createProject({
+      name: 'Con owner',
+      userId: user.id,
+    });
+
+    const membership = await prisma.projectMember.findUnique({
+      where: { userId_projectId: { userId: user.id, projectId: project.id } },
+    });
+
+    expect(membership).not.toBeNull();
+    expect(membership.role).toBe('owner');
+    expect(membership.createdById).toBe(user.id);
+  });
+
+  test('crea exactamente una membresia, no mas', async () => {
+    const user = await crearUsuario();
+    const project = await projectsService.createProject({
+      name: 'Una sola',
+      userId: user.id,
+    });
+
+    const members = await prisma.projectMember.findMany({
+      where: { projectId: project.id },
+    });
+
+    expect(members).toHaveLength(1);
+  });
+
+  test('es atomico: si falla la creacion no queda proyecto huerfano', async () => {
+    // userId inexistente -> la FK de project_members.user_id revienta. Como el
+    // nested write corre en una sola transaccion, el proyecto tampoco debe
+    // quedar creado.
+    const antes = await prisma.project.count();
+
+    await expect(
+      projectsService.createProject({
+        name: 'Deberia hacer rollback',
+        userId: '00000000-0000-4000-8000-000000000000',
+      })
+    ).rejects.toThrow();
+
+    expect(await prisma.project.count()).toBe(antes);
+  });
+});
+
+describe('invariante de integridad', () => {
+  test('ningun proyecto queda sin membresia owner', async () => {
+    // Red de seguridad: si alguien abre un camino alternativo para crear
+    // proyectos que se saltea projects.service, este test lo caza en CI.
+    const user = await crearUsuario();
+    await projectsService.createProject({ name: 'A', userId: user.id });
+    await projectsService.createProject({ name: 'B', userId: user.id });
+
+    const huerfanos = await prisma.$queryRaw`
+      SELECT p.id
+      FROM projects p
+      WHERE NOT EXISTS (
+        SELECT 1 FROM project_members m
+        WHERE m.project_id = p.id AND m.role = 'owner'
+      )`;
+
+    expect(huerfanos).toHaveLength(0);
+  });
+});
+
+describe('getProjectById', () => {
+  test('devuelve el proyecto sin exponer la lista de miembros', async () => {
+    const user = await crearUsuario();
+    const creado = await projectsService.createProject({
+      name: 'Buscable',
+      userId: user.id,
+    });
+
+    const project = await projectsService.getProjectById(creado.id);
+
+    expect(project).toMatchObject({ id: creado.id, name: 'Buscable' });
+    expect(project.members).toBeUndefined();
+  });
+
+  test('tira ProjectNotFoundError si no existe', async () => {
+    await expect(
+      projectsService.getProjectById('00000000-0000-4000-8000-000000000000')
+    ).rejects.toBeInstanceOf(projectsService.ProjectNotFoundError);
+  });
+});
+
+describe('listProjectsForUser', () => {
+  test('devuelve solo los proyectos donde el usuario es miembro', async () => {
+    const user = await crearUsuario('lista@ideator.com');
+    const otro = await crearUsuario('otro@ideator.com');
+
+    await projectsService.createProject({ name: 'Mio 1', userId: user.id });
+    await projectsService.createProject({ name: 'Mio 2', userId: user.id });
+    await projectsService.createProject({ name: 'Ajeno', userId: otro.id });
+
+    const projects = await projectsService.listProjectsForUser(user.id);
+
+    expect(projects).toHaveLength(2);
+    expect(projects.every((p) => p.name !== 'Ajeno')).toBe(true);
+  });
+
+  test('devuelve lista vacia si el usuario no tiene proyectos', async () => {
+    const user = await crearUsuario('sinproyectos@ideator.com');
+
+    const projects = await projectsService.listProjectsForUser(user.id);
+
+    expect(projects).toEqual([]);
+  });
+
+  test('incluye proyectos donde el usuario es miembro pero no owner', async () => {
+    const owner = await crearUsuario('owner-lista@ideator.com');
+    const viewer = await crearUsuario('viewer-lista@ideator.com');
+
+    const project = await projectsService.createProject({
+      name: 'Compartido',
+      userId: owner.id,
+    });
+    await prisma.projectMember.create({
+      data: { userId: viewer.id, projectId: project.id, role: 'viewer' },
+    });
+
+    const projects = await projectsService.listProjectsForUser(viewer.id);
+
+    expect(projects.map((p) => p.id)).toContain(project.id);
+  });
+
+  test('devuelve el rol propio de cada usuario en el mismo proyecto, no un rol compartido', async () => {
+    const owner = await crearUsuario('owner-rol@ideator.com');
+    const viewer = await crearUsuario('viewer-rol@ideator.com');
+    const project = await projectsService.createProject({ name: 'Con roles', userId: owner.id });
+    await prisma.projectMember.create({ data: { userId: viewer.id, projectId: project.id, role: 'viewer' } });
+
+    const [ownerProjects, viewerProjects] = await Promise.all([
+      projectsService.listProjectsForUser(owner.id),
+      projectsService.listProjectsForUser(viewer.id),
+    ]);
+
+    expect(ownerProjects.find((p) => p.id === project.id).role).toBe('owner');
+    expect(viewerProjects.find((p) => p.id === project.id).role).toBe('viewer');
+  });
+
+  test('un proyecto recien creado tiene progreso 0/6 (US-065)', async () => {
+    const user = await crearUsuario('progreso@ideator.com');
+    const project = await projectsService.createProject({ name: 'Nuevo', userId: user.id });
+
+    const [listado] = await projectsService.listProjectsForUser(user.id);
+
+    expect(listado.id).toBe(project.id);
+    expect(listado.progress).toEqual({ completedStages: 0, totalStages: 6 });
+  });
+});
+
+describe('updateProject', () => {
+  test('actualiza los campos recibidos', async () => {
+    const user = await crearUsuario('update@ideator.com');
+    const project = await projectsService.createProject({
+      name: 'Original',
+      userId: user.id,
+    });
+
+    const updated = await projectsService.updateProject(project.id, {
+      name: 'Actualizado',
+    });
+
+    expect(updated.name).toBe('Actualizado');
+    expect(updated.id).toBe(project.id);
+  });
+
+  test('no modifica campos que no fueron enviados', async () => {
+    const user = await crearUsuario('update2@ideator.com');
+    const project = await projectsService.createProject({
+      name: 'Con descripcion',
+      description: 'Original',
+      userId: user.id,
+    });
+
+    const updated = await projectsService.updateProject(project.id, {
+      name: 'Nuevo nombre',
+    });
+
+    expect(updated.description).toBe('Original');
+  });
+
+  test('tira error si el proyecto no existe', async () => {
+    await expect(
+      projectsService.updateProject('00000000-0000-4000-8000-000000000000', {
+        name: 'No existe',
+      })
+    ).rejects.toThrow();
+  });
+});
+
+describe('deleteProject', () => {
+  test('elimina el proyecto', async () => {
+    const user = await crearUsuario('delete@ideator.com');
+    const project = await projectsService.createProject({
+      name: 'A borrar',
+      userId: user.id,
+    });
+
+    await projectsService.deleteProject(project.id);
+
+    const encontrado = await prisma.project.findUnique({ where: { id: project.id } });
+    expect(encontrado).toBeNull();
+  });
+
+  test('elimina en cascada las membresias del proyecto', async () => {
+    const user = await crearUsuario('delete-cascade@ideator.com');
+    const project = await projectsService.createProject({
+      name: 'Con miembros',
+      userId: user.id,
+    });
+
+    await projectsService.deleteProject(project.id);
+
+    const membresias = await prisma.projectMember.findMany({
+      where: { projectId: project.id },
+    });
+    expect(membresias).toHaveLength(0);
+  });
+
+  test('tira error si el proyecto no existe', async () => {
+    await expect(
+      projectsService.deleteProject('00000000-0000-4000-8000-000000000000')
+    ).rejects.toThrow();
+  });
+});

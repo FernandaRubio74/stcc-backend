@@ -1,0 +1,435 @@
+// ============================================================
+// GENIAL - Modelo de datos inicial
+// US: Como equipo de backend, quiero un modelo de datos inicial
+// para usuarios, proyectos y membresias...
+// ============================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Nota: este schema vive en src/database/schema.prisma (no en ./prisma/,
+// que es la ubicacion por defecto de Prisma) para respetar la estructura
+// de carpetas ya definida en el repo. Por eso todos los comandos de Prisma
+// en package.json usan la flag --schema=src/database/schema.prisma.
+
+enum ProjectRole {
+  owner
+  editor
+  viewer
+}
+
+// Etapas del wizard conversacional (EPIC-05). Se van agregando a medida que
+// se implementan los sprints siguientes (modelo de datos, spec de API, etc.).
+enum DefinitionStage {
+  PROBLEM_CONTEXT
+  TARGET_USERS_SCOPE
+}
+
+enum DefinitionMessageRole {
+  user
+  assistant
+}
+
+// EPIC-05, US-021: una version es DRAFT mientras se edita colaborativamente
+// y pasa a APPROVED (inmutable) cuando el owner la aprueba. Nunca se
+// sobreescribe una version aprobada: una edicion posterior crea una nueva
+// version DRAFT.
+enum DataModelVersionStatus {
+  DRAFT
+  APPROVED
+}
+
+// EPIC-06, US-024: mismo ciclo de vida que DataModelVersionStatus (DRAFT
+// editable, APPROVED inmutable) aplicado a la especificacion de API.
+enum ApiSpecVersionStatus {
+  DRAFT
+  APPROVED
+}
+
+// US-035/US-036: los dos documentos Markdown finales que entrega GENIAL.
+// El tipo distingue cual de los dos es, y el versionado es independiente
+// por tipo (ver GeneratedDocument).
+enum GeneratedDocumentKind {
+  SPEC
+  ARCHITECTURE
+}
+
+// Mismo ciclo de vida que DataModelVersionStatus/ApiSpecVersionStatus.
+enum TestPlanVersionStatus {
+  DRAFT
+  APPROVED
+}
+
+// Idem - ver ScreenMapVersion.
+enum ScreenMapVersionStatus {
+  DRAFT
+  APPROVED
+}
+
+// ------------------------------------------------------------
+// User
+// ------------------------------------------------------------
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  email        String  @unique @db.VarChar(255)
+  passwordHash String? @map("password_hash") @db.VarChar(255)
+  fullName     String  @map("full_name") @db.VarChar(150)
+
+  // Campos mínimos para soportar SSO desde el diseño (login local o proveedor externo)
+  authProvider String  @default("local") @map("auth_provider") @db.VarChar(30)
+  providerId   String? @map("provider_id") @db.VarChar(255)
+
+  // --- Auditoría ---
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Auto-referencia: quién creó este usuario (null = se registró solo)
+  createdById  String? @map("created_by") @db.Uuid
+  createdBy    User?   @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdUsers User[]  @relation("UserCreatedBy")
+
+  // --- Relaciones inversas ---
+  ownedProjects         Project[]           @relation("ProjectCreatedBy")
+  memberships           ProjectMember[]     @relation("MemberUser")
+  addedMemberships      ProjectMember[]     @relation("MemberCreatedBy")
+  definitionMessages    DefinitionMessage[] @relation("DefinitionMessageAuthor")
+  authoredModelVersions DataModelVersion[]  @relation("DataModelVersionAuthor")
+  approvedModelVersions DataModelVersion[]  @relation("DataModelVersionApprover")
+  authoredApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionAuthor")
+  approvedApiSpecVersions ApiSpecVersion[]  @relation("ApiSpecVersionApprover")
+  authoredScreenMapVersions ScreenMapVersion[] @relation("ScreenMapVersionAuthor")
+  approvedScreenMapVersions ScreenMapVersion[] @relation("ScreenMapVersionApprover")
+  selectedArchitectures   ProjectArchitecture[] @relation("ProjectArchitectureSelector")
+  authoredTestPlanVersions TestPlanVersion[]    @relation("TestPlanVersionAuthor")
+  approvedTestPlanVersions TestPlanVersion[]    @relation("TestPlanVersionApprover")
+  authoredDocuments       GeneratedDocument[]   @relation("GeneratedDocumentAuthor")
+
+  // Evita que dos usuarios locales/SSO compartan la misma identidad externa
+  @@unique([authProvider, providerId], map: "uq_user_provider")
+  @@map("users")
+}
+
+// ------------------------------------------------------------
+// Project
+// ------------------------------------------------------------
+model Project {
+  id String @id @default(uuid()) @db.Uuid
+  // Sin @db.VarChar(150) (como tenia antes): el valor cifrado en reposo (ver
+  // database/fieldEncryption.js) es un sobre JSON serializado bastante mas
+  // largo que el nombre real, VarChar(150) se quedaba corto.
+  name        String
+  description String?
+  isPrivate   Boolean @default(true) @map("is_private")
+
+  // --- Auditoría ---
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  createdById String @map("created_by") @db.Uuid
+  createdBy   User   @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  members ProjectMember[]
+
+  definition         ProjectDefinition?
+  definitionMessages DefinitionMessage[]
+  blockingQuestions  BlockingQuestion[]
+  dataModelVersions  DataModelVersion[]
+  apiSpecVersions    ApiSpecVersion[]
+  screenMapVersions  ScreenMapVersion[]
+  architecture       ProjectArchitecture?
+  testPlanVersions   TestPlanVersion[]
+  generatedDocuments GeneratedDocument[]
+
+  @@map("projects")
+}
+
+// ------------------------------------------------------------
+// ProjectMember (resuelve la relación N:M entre User y Project)
+// ------------------------------------------------------------
+model ProjectMember {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId    String      @map("user_id") @db.Uuid
+  user      User        @relation("MemberUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  projectId String      @map("project_id") @db.Uuid
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  role      ProjectRole @default(viewer)
+
+  // --- Auditoría ---
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  createdById String? @map("created_by") @db.Uuid
+  createdBy   User?   @relation("MemberCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // Un usuario no puede tener más de una membresía activa por proyecto
+  @@unique([userId, projectId], map: "uq_project_member")
+  @@map("project_members")
+}
+
+// ------------------------------------------------------------
+// ProjectDefinition (EPIC-05, US-015/US-016) — estado estructurado del
+// wizard conversacional. Cardinalidad 1:1 con Project: cada proyecto tiene
+// a lo sumo una definicion, creada de forma perezosa en el primer mensaje.
+// ------------------------------------------------------------
+model ProjectDefinition {
+  projectId    String          @id @map("project_id") @db.Uuid
+  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  currentStage DefinitionStage @default(PROBLEM_CONTEXT) @map("current_stage")
+
+  // US-015: sintesis del problema/contexto, mantenida por la IA turno a turno.
+  problemSummary String? @map("problem_summary")
+
+  // US-016: estructurados; el modelo reescribe el valor completo en cada
+  // turno (no hace merge de deltas) para evitar inconsistencias acumuladas.
+  targetUsers Json? @map("target_users")
+  mvpScope    Json? @map("mvp_scope")
+  userJourney Json? @map("user_journey")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("project_definitions")
+}
+
+// ------------------------------------------------------------
+// DefinitionMessage (US-015.3) — historial de conversacion del wizard.
+// ------------------------------------------------------------
+model DefinitionMessage {
+  id        String                @id @default(uuid()) @db.Uuid
+  projectId String                @map("project_id") @db.Uuid
+  project   Project               @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  stage     DefinitionStage
+  role      DefinitionMessageRole
+  content   String
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("DefinitionMessageAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // Los mensajes del asistente no tienen autor humano.
+  @@index([projectId, createdAt])
+  @@map("definition_messages")
+}
+
+// ------------------------------------------------------------
+// BlockingQuestion (US-017) — preguntas que impiden avanzar de etapa
+// mientras no esten resueltas.
+// ------------------------------------------------------------
+model BlockingQuestion {
+  id        String          @id @default(uuid()) @db.Uuid
+  projectId String          @map("project_id") @db.Uuid
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  stage     DefinitionStage
+  question  String
+
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz
+
+  @@index([projectId, stage, resolvedAt])
+  @@map("blocking_questions")
+}
+
+// ------------------------------------------------------------
+// DataModelVersion (US-019/US-020/US-021) — entidades propuestas (por la
+// IA o editadas a mano) para el modelo fisico de base de datos. `entities`
+// y el diagrama Mermaid derivado se guardan como snapshot completo por
+// version: una vez APPROVED, la fila es inmutable (ver enum) y cualquier
+// edicion posterior crea una version DRAFT nueva.
+// ------------------------------------------------------------
+model DataModelVersion {
+  id            String                 @id @default(uuid()) @db.Uuid
+  projectId     String                 @map("project_id") @db.Uuid
+  project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                    @map("version_number")
+  status        DataModelVersionStatus @default(DRAFT)
+  entities      Json
+  diagram       String?
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("DataModelVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("DataModelVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_data_model_version")
+  @@index([projectId, status])
+  @@map("data_model_versions")
+}
+
+// ------------------------------------------------------------
+// ApiSpecVersion (US-023/US-024) — endpoints propuestos (por la IA o
+// editados a mano) para la especificacion de la API. Mismo esquema de
+// versionado que DataModelVersion: snapshot completo por version, DRAFT
+// editable in-place, APPROVED inmutable.
+// ------------------------------------------------------------
+model ApiSpecVersion {
+  id            String               @id @default(uuid()) @db.Uuid
+  projectId     String               @map("project_id") @db.Uuid
+  project       Project              @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                  @map("version_number")
+  status        ApiSpecVersionStatus @default(DRAFT)
+  endpoints     Json
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("ApiSpecVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("ApiSpecVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_api_spec_version")
+  @@index([projectId, status])
+  @@map("api_spec_versions")
+}
+
+// ------------------------------------------------------------
+// ScreenMapVersion — mapa de pantallas, navegacion y wireframes de baja
+// fidelidad. Mismo esquema de versionado DRAFT/APPROVED que
+// DataModelVersion/ApiSpecVersion (pedido explicito: el usuario revisa y
+// aprueba el mapa de pantallas igual que el modelo de datos, antes de que
+// la etapa de Pruebas pueda referenciarlo). `screens[].mainElements` es un
+// array de elementos ESTRUCTURADOS (no strings sueltos, ver
+// screens/screen.schema.js): { type, label, dataField, endpointRef } -
+// `dataField`/`endpointRef` referencian EXACTAMENTE una entidad.atributo o
+// un "METODO /ruta" reales (validado por screens/coherence.js), para que
+// el wireframe en vivo del frontend y el documento final sepan de donde
+// viene cada dato sin que la otra IA tenga que adivinarlo.
+// ------------------------------------------------------------
+model ScreenMapVersion {
+  id            String                @id @default(uuid()) @db.Uuid
+  projectId     String                @map("project_id") @db.Uuid
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                   @map("version_number")
+  status        ScreenMapVersionStatus @default(DRAFT)
+  screens       Json
+  navigation    Json
+  diagram       String
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("ScreenMapVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("ScreenMapVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_screen_map_version")
+  @@index([projectId, status])
+  @@map("screen_map_versions")
+}
+
+// ------------------------------------------------------------
+// ProjectArchitecture (US-028) — recomendacion de la IA (de un catalogo
+// fijo en codigo, ver architecture/catalog.js) y la seleccion final del
+// usuario (que puede coincidir con la recomendacion o ser una eleccion
+// explicita de otra opcion del catalogo). 1:1 por proyecto: no hay
+// historial, la ultima recomendacion/seleccion es la vigente.
+// ------------------------------------------------------------
+model ProjectArchitecture {
+  projectId     String    @id @map("project_id") @db.Uuid
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  recommendedId String?   @map("recommended_id")
+  justification String?
+  selectedId    String?   @map("selected_id")
+  selectedAt    DateTime? @map("selected_at") @db.Timestamptz
+
+  selectedById String? @map("selected_by") @db.Uuid
+  selectedBy   User?   @relation("ProjectArchitectureSelector", fields: [selectedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("project_architectures")
+}
+
+// ------------------------------------------------------------
+// TestPlanVersion — etapa "Pruebas", entre Arquitectura y Revision final.
+// Mismo esquema de versionado que DataModelVersion/ApiSpecVersion: snapshot
+// completo por version, DRAFT editable hasta que se aprueba. `content` es
+// un JSON con esta forma (ver testing/prompts.js y testing.service.js):
+// {
+//   strategy: { inScope: string[], outOfScope: string[], riskPriorities: Array<{item, risk: 'alto'|'medio'|'bajo', rationale}> },
+//   acceptanceCases: Array<{ id, ruleRef, given, when, then }>,
+//   endpointCases: Array<{ endpointRef: "METHOD path", happyPath, invalidData, unauthorized }>,
+//   screenCases: Array<{ screenRef: nombre de pantalla, loading, empty, error }>,
+//   e2eFlows: Array<{ name, steps: string[], relatedCaseIds: string[] }>,
+//   securityCases: Array<{ id, description, type: 'permisos'|'id-adivinado'|'token-vencido' }>,
+//   negativeCases: Array<{ id, description, expectedRejection }>,
+//   usabilityCases: Array<{ id, description }>,
+//   testData: Array<{ entity, environment, description }>,
+//   traceabilityMatrix: Array<{ requirementRef, caseIds: string[] }>,
+// }
+// ------------------------------------------------------------
+model TestPlanVersion {
+  id            String                @id @default(uuid()) @db.Uuid
+  projectId     String                @map("project_id") @db.Uuid
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  versionNumber Int                   @map("version_number")
+  status        TestPlanVersionStatus @default(DRAFT)
+  content       Json
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("TestPlanVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz
+  approvedById String?   @map("approved_by") @db.Uuid
+  approvedBy   User?     @relation("TestPlanVersionApprover", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, versionNumber], map: "uq_test_plan_version")
+  @@index([projectId, status])
+  @@map("test_plan_versions")
+}
+
+// ------------------------------------------------------------
+// GeneratedDocument (US-035/US-036) — documentos Markdown finales
+// generados de forma deterministica a partir del estado ya aprobado de
+// cada etapa (la IA no participa de la generacion). Se guarda el
+// contenido completo como snapshot y se versiona de forma independiente
+// por tipo de documento, porque el DoD de US-037 pide poder consultar el
+// historial de versiones generadas: regenerar no sobreescribe, crea una
+// version nueva.
+// ------------------------------------------------------------
+model GeneratedDocument {
+  id            String                @id @default(uuid()) @db.Uuid
+  projectId     String                @map("project_id") @db.Uuid
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  kind          GeneratedDocumentKind
+  versionNumber Int                   @map("version_number")
+  content       String
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdById String?  @map("created_by") @db.Uuid
+  createdBy   User?    @relation("GeneratedDocumentAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([projectId, kind, versionNumber], map: "uq_generated_document_version")
+  @@index([projectId, kind])
+  @@map("generated_documents")
+}
+
+// ------------------------------------------------------------
+// RevokedToken (US-042) — denylist de tokens invalidados por logout.
+//
+// A proposito es una denylist y no una allowlist: el camino feliz (token
+// emitido, nunca deslogueado) no toca esta tabla; solo los jti de un logout
+// explicito quedan registrados, hasta que el propio token expiraria de
+// todas formas. `expiresAt` replica la expiracion del JWT para poder podar
+// filas vencidas sin tener que decodificar el token de nuevo.
+// ------------------------------------------------------------
+model RevokedToken {
+  jti       String   @id
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([expiresAt])
+  @@map("revoked_tokens")
+}
