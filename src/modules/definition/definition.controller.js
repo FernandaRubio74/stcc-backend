@@ -1,6 +1,6 @@
 const definitionService = require('./definition.service');
 const { StageBlockedError, NoNextStageError } = require('./definition.errors');
-const { AiTimeoutError, AiProviderError, AiResponseValidationError } = require('../ai/ai.errors');
+const { AI_UNAVAILABLE_MESSAGE, isAiFailure, logAiFailure } = require('../ai/aiFailure');
 
 async function getDefinitionController(req, res) {
   const state = await definitionService.getDefinitionState(req.params.projectId);
@@ -17,14 +17,9 @@ async function postMessageController(req, res) {
     return res.status(201).json(result);
   } catch (err) {
     // DoD T-014.2: timeout/sin respuesta del proveedor -> 500 controlado.
-    if (
-      err instanceof AiTimeoutError ||
-      err instanceof AiProviderError ||
-      err instanceof AiResponseValidationError
-    ) {
-      return res
-        .status(500)
-        .json({ error: 'El asistente de IA no esta disponible en este momento, intenta de nuevo' });
+    if (isAiFailure(err)) {
+      logAiFailure(err, { stage: 'definition', action: 'message', projectId: req.params.projectId });
+      return res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
     }
     throw err;
   }

@@ -1,6 +1,6 @@
 const dataModelService = require('./data-model.service');
 const { InsufficientDefinitionError, DraftNotFoundError, NoCurrentContentError } = require('./data-model.errors');
-const { AiTimeoutError, AiProviderError, AiResponseValidationError } = require('../ai/ai.errors');
+const { AI_UNAVAILABLE_MESSAGE, isAiFailure, logAiFailure } = require('../ai/aiFailure');
 
 async function getDataModelController(req, res) {
   const state = await dataModelService.getDataModelState(req.params.projectId);
@@ -15,10 +15,9 @@ async function generateDataModelController(req, res) {
     if (err instanceof InsufficientDefinitionError) {
       return res.status(409).json({ error: err.message });
     }
-    if (err instanceof AiTimeoutError || err instanceof AiProviderError || err instanceof AiResponseValidationError) {
-      return res
-        .status(500)
-        .json({ error: 'El asistente de IA no esta disponible en este momento, intenta de nuevo' });
+    if (isAiFailure(err)) {
+      logAiFailure(err, { stage: 'data-model', action: 'generate', projectId: req.params.projectId });
+      return res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
     }
     throw err;
   }
@@ -32,10 +31,9 @@ async function refineDataModelController(req, res) {
     if (err instanceof InsufficientDefinitionError || err instanceof NoCurrentContentError) {
       return res.status(409).json({ error: err.message });
     }
-    if (err instanceof AiTimeoutError || err instanceof AiProviderError || err instanceof AiResponseValidationError) {
-      return res
-        .status(500)
-        .json({ error: 'El asistente de IA no esta disponible en este momento, intenta de nuevo' });
+    if (isAiFailure(err)) {
+      logAiFailure(err, { stage: 'data-model', action: 'refine', projectId: req.params.projectId });
+      return res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
     }
     throw err;
   }

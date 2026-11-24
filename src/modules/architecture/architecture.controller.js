@@ -1,7 +1,7 @@
 const architectureService = require('./architecture.service');
 const { InvalidArchitectureIdError } = require('./architecture.errors');
 const { NoApprovedVersionError } = require('../data-model/data-model.errors');
-const { AiTimeoutError, AiProviderError, AiResponseValidationError } = require('../ai/ai.errors');
+const { AI_UNAVAILABLE_MESSAGE, isAiFailure, logAiFailure } = require('../ai/aiFailure');
 
 function getCatalogController(req, res) {
   return res.status(200).json(architectureService.getCatalog());
@@ -31,10 +31,9 @@ async function recommendArchitectureController(req, res) {
     if (err instanceof InvalidArchitectureIdError) {
       return res.status(502).json({ error: err.message });
     }
-    if (err instanceof AiTimeoutError || err instanceof AiProviderError || err instanceof AiResponseValidationError) {
-      return res
-        .status(500)
-        .json({ error: 'El asistente de IA no esta disponible en este momento, intenta de nuevo' });
+    if (isAiFailure(err)) {
+      logAiFailure(err, { stage: 'architecture', action: 'recommend', projectId: req.params.projectId });
+      return res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
     }
     throw err;
   }
